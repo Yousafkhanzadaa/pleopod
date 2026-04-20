@@ -103,6 +103,7 @@ class PipelineWorker:
             try:
                 result = await agent.run(job, context, message)
             except Exception as exc:  # noqa: BLE001
+                await session.rollback()
                 await job_repo.finish_agent_run(run["id"], AgentStatus.FAILED, error=str(exc))
                 if read_ct >= self.settings.max_agent_attempts:
                     await job_repo.update_job(job_id, status=JobStatus.FAILED, error=str(exc))

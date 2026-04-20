@@ -75,6 +75,15 @@ Fetch published episodes:
 curl http://localhost:8000/episodes
 ```
 
+Run a full local generation smoke test:
+
+```bash
+.venv/bin/python scripts/generate_podcast.py "How AI coding agents are changing software development in 2026"
+```
+
+The script creates a job, polls until the pipeline completes or fails, and prints
+the final audio URL.
+
 ## Local Fake Mode
 
 For offline development:

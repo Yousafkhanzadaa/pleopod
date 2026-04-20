@@ -21,7 +21,7 @@ async def test_verify_supabase_jwt_with_inline_jwks() -> None:
         algorithm="HS256",
         headers={"kid": "test-key"},
     )
-    settings = Settings(
+    settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         supabase_jwks_json=json.dumps(
             {
@@ -44,7 +44,9 @@ async def test_verify_supabase_jwt_with_inline_jwks() -> None:
 
 
 def test_supabase_jwks_url_defaults_from_project_url() -> None:
-    settings = Settings(_env_file=None, supabase_url="https://example.supabase.co")
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None, supabase_url="https://example.supabase.co"
+    )
 
     assert (
         settings.resolved_supabase_jwks_url

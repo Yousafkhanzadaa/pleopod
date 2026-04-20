@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     audio_export_format: Literal["mp3", "wav"] = "mp3"
 
     worker_sleep_seconds: float = 1.0
-    max_tts_chunk_chars: int = 6500
+    max_tts_chunk_chars: int = 3000
 
     @computed_field  # type: ignore[misc]
     @property
@@ -108,6 +108,13 @@ class Settings(BaseSettings):
             raise RuntimeError("GEMINI_API_KEY is required when AI_PROVIDER=gemini")
 
     def validate_database_url(self) -> None:
+        if self.database_url.startswith("DATABASE_URL="):
+            raise RuntimeError(
+                "DATABASE_URL value includes the literal 'DATABASE_URL=' prefix. "
+                "In .env.local, the line should be DATABASE_URL=postgresql://... "
+                "not DATABASE_URL=DATABASE_URL=postgresql://..."
+            )
+
         parsed = urlparse(self.database_url)
         if parsed.scheme not in {"postgresql", "postgres", "postgresql+asyncpg"}:
             raise RuntimeError("DATABASE_URL must be a Postgres connection string")

@@ -182,28 +182,23 @@ create index if not exists idx_episodes_status_published_at on episodes(status, 
 create index if not exists idx_episode_assets_episode_id on episode_assets(episode_id);
 
 drop trigger if exists set_updated_at_podcast_topics on podcast_topics;
-create trigger set_updated_at_podcast_topics
-before update on podcast_topics
+create trigger set_updated_at_podcast_topics before update on podcast_topics
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_updated_at_generation_jobs on generation_jobs;
-create trigger set_updated_at_generation_jobs
-before update on generation_jobs
+create trigger set_updated_at_generation_jobs before update on generation_jobs
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_updated_at_claims on claims;
-create trigger set_updated_at_claims
-before update on claims
+create trigger set_updated_at_claims before update on claims
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_updated_at_episodes on episodes;
-create trigger set_updated_at_episodes
-before update on episodes
+create trigger set_updated_at_episodes before update on episodes
 for each row execute function public.set_updated_at();
 
 drop trigger if exists set_updated_at_tts_segments on tts_segments;
-create trigger set_updated_at_tts_segments
-before update on tts_segments
+create trigger set_updated_at_tts_segments before update on tts_segments
 for each row execute function public.set_updated_at();
 
 insert into podcast_topics (name, description)
@@ -267,4 +262,3 @@ create policy "Public topics are readable"
 on podcast_topics for select
 to anon, authenticated
 using (true);
-

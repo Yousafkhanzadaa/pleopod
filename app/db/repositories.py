@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -238,11 +239,25 @@ class KnowledgeRepository:
                       :job_id, :url, :title, :publisher, :author, :published_at, now(),
                       :source_tier, :credibility_score, :notes
                     )
+                    on conflict do nothing
                     """
                 ),
-                [{"job_id": str(job_id), **source} for source in sources],
+                [self._source_params(job_id, source) for source in sources],
             )
         await self.session.commit()
+
+    def _source_params(self, job_id: UUID | str, source: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "job_id": str(job_id),
+            "url": source.get("url"),
+            "title": source.get("title"),
+            "publisher": source.get("publisher"),
+            "author": source.get("author"),
+            "published_at": parse_optional_datetime(source.get("published_at")),
+            "source_tier": source.get("source_tier", "B"),
+            "credibility_score": source.get("credibility_score"),
+            "notes": source.get("notes"),
+        }
 
     async def replace_claims(self, job_id: UUID | str, claims: list[dict[str, Any]]) -> None:
         await self.session.execute(
@@ -260,6 +275,7 @@ class KnowledgeRepository:
                       :job_id, :claim_text, cast(:source_urls as jsonb), :verification_status,
                       :confidence, :notes, :used_in_script
                     )
+                    on conflict do nothing
                     """
                 ),
                 [
@@ -276,6 +292,21 @@ class KnowledgeRepository:
                 ],
             )
         await self.session.commit()
+
+
+def parse_optional_datetime(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if normalized.endswith("Z"):
+            normalized = f"{normalized[:-1]}+00:00"
+        return datetime.fromisoformat(normalized)
+    raise TypeError(f"Expected datetime, ISO datetime string, or None, got {type(value)!r}")
 
 
 class EpisodeRepository:

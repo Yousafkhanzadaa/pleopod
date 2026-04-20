@@ -19,7 +19,15 @@ class QueueRepository:
 
     async def send(self, queue_name: str, message: dict[str, Any], delay_seconds: int = 0) -> int:
         result = await self.session.execute(
-            text("select * from pgmq.send(:queue_name, cast(:message as jsonb), :delay_seconds)"),
+            text(
+                """
+                select * from pgmq.send(
+                  cast(:queue_name as text),
+                  cast(:message as jsonb),
+                  cast(:delay_seconds as integer)
+                )
+                """
+            ),
             {
                 "queue_name": queue_name,
                 "message": json.dumps(message),
@@ -43,11 +51,11 @@ class QueueRepository:
                 """
                 select msg_id, read_ct, message
                 from pgmq.read_with_poll(
-                  :queue_name,
-                  :visibility_timeout_seconds,
-                  :qty,
-                  :max_poll_seconds,
-                  :poll_interval_ms
+                  cast(:queue_name as text),
+                  cast(:visibility_timeout_seconds as integer),
+                  cast(:qty as integer),
+                  cast(:max_poll_seconds as integer),
+                  cast(:poll_interval_ms as integer)
                 )
                 """
             ),
@@ -73,7 +81,7 @@ class QueueRepository:
 
     async def delete(self, queue_name: str, msg_id: int) -> bool:
         result = await self.session.execute(
-            text("select pgmq.delete(:queue_name, :msg_id)"),
+            text("select pgmq.delete(cast(:queue_name as text), cast(:msg_id as bigint))"),
             {"queue_name": queue_name, "msg_id": msg_id},
         )
         await self.session.commit()
@@ -82,7 +90,7 @@ class QueueRepository:
 
     async def archive(self, queue_name: str, msg_id: int) -> bool:
         result = await self.session.execute(
-            text("select pgmq.archive(:queue_name, :msg_id)"),
+            text("select pgmq.archive(cast(:queue_name as text), cast(:msg_id as bigint))"),
             {"queue_name": queue_name, "msg_id": msg_id},
         )
         await self.session.commit()
