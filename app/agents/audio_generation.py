@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app.agents.audio_config import build_tts_config, tts_config_needs_rebuild
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.models.enums import ArtifactType, PipelineStep
 from app.providers.ai import AudioGeneration, SpeakerVoice
@@ -19,6 +20,16 @@ class AudioGenerationAgent(PipelineAgent):
     ) -> AgentResult:
         job_id = str(job["id"])
         config = await context.latest_json(job_id, ArtifactType.TTS_CONFIG_JSON)
+        if tts_config_needs_rebuild(config):
+            script = await context.latest_json(job_id, ArtifactType.VERIFIED_SCRIPT_JSON)
+            config = build_tts_config(script, context.settings)
+            await context.artifact_service.put_json(
+                f"jobs/{job_id}/audio/tts_config_rebuilt.json",
+                config,
+                ArtifactType.TTS_CONFIG_JSON,
+                job_id=job_id,
+                metadata={"reason": "rebuilt stale or oversized TTS config"},
+            )
         speakers = [
             SpeakerVoice(
                 speaker=item["speaker"],

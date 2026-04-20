@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     gemini_script_model: str = "gemini-2.5-flash"
     gemini_verification_model: str = "gemini-2.5-pro"
     gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
+    gemini_tts_fallback_model: str | None = "gemini-2.5-flash-preview-tts"
     gemini_image_model: str = "gemini-2.5-flash-image"
 
     default_category: str = "Tech"
@@ -54,7 +55,7 @@ class Settings(BaseSettings):
     audio_export_format: Literal["mp3", "wav"] = "mp3"
 
     worker_sleep_seconds: float = 1.0
-    max_tts_chunk_chars: int = 3000
+    max_tts_chunk_chars: int = 1200
 
     @computed_field  # type: ignore[misc]
     @property

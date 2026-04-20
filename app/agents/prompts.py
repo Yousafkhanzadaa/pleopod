@@ -61,7 +61,7 @@ Verify and repair this research dossier before any script is written.
 
 Tasks:
 - Check whether claims are supported by sources.
-- Mark unsupported or weakly supported claims.
+- Mark weakly supported claims as "needs_context"; do not output "weakly_supported".
 - Improve claims when they are vague or misleading.
 - Keep only claims useful for a factual Tech podcast.
 - Return JSON only.
@@ -104,6 +104,8 @@ Tone: {job["tone"]}
 TTS rules:
 - Use exactly two speakers.
 - Speaker names must be stable and simple.
+- Voice names must be Gemini TTS prebuilt voices, such as Charon and Puck.
+- Do not use Google Cloud TTS voice ids such as en-US-Neural2-C.
 - Keep the transcript clean: no markdown tables, no citations spoken aloud, no URLs in dialogue.
 - Keep factual claims grounded in the claim bank.
 - Use natural conversational turns.

@@ -8,6 +8,23 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+CLAIM_VERIFICATION_STATUSES = {
+    "unverified",
+    "supported",
+    "unsupported",
+    "misleading",
+    "needs_context",
+}
+CLAIM_VERIFICATION_STATUS_ALIASES = {
+    "weak": "needs_context",
+    "weakly_supported": "needs_context",
+    "partially_supported": "needs_context",
+    "partly_supported": "needs_context",
+    "overstated": "misleading",
+    "not_supported": "unsupported",
+    "false": "unsupported",
+}
+
 
 class JobRepository:
     def __init__(self, session: AsyncSession):
@@ -283,7 +300,9 @@ class KnowledgeRepository:
                         "job_id": str(job_id),
                         "claim_text": claim["claim_text"],
                         "source_urls": json.dumps(claim.get("source_urls", [])),
-                        "verification_status": claim.get("verification_status", "unverified"),
+                        "verification_status": normalize_claim_verification_status(
+                            claim.get("verification_status")
+                        ),
                         "confidence": claim.get("confidence"),
                         "notes": claim.get("notes"),
                         "used_in_script": claim.get("used_in_script", False),
@@ -292,6 +311,14 @@ class KnowledgeRepository:
                 ],
             )
         await self.session.commit()
+
+
+def normalize_claim_verification_status(value: Any) -> str:
+    status = str(value or "unverified").strip().lower().replace("-", "_").replace(" ", "_")
+    status = CLAIM_VERIFICATION_STATUS_ALIASES.get(status, status)
+    if status in CLAIM_VERIFICATION_STATUSES:
+        return status
+    return "unverified"
 
 
 def parse_optional_datetime(value: Any) -> datetime | None:
@@ -326,13 +353,32 @@ class EpisodeRepository:
                   :duration_seconds, :language, cast(:metadata as jsonb),
                   case when :status = 'published' then now() else null end
                 )
+                on conflict (slug)
+                do update set title = excluded.title,
+                              category = excluded.category,
+                              status = excluded.status,
+                              summary = excluded.summary,
+                              description = excluded.description,
+                              duration_seconds = excluded.duration_seconds,
+                              language = excluded.language,
+                              metadata = excluded.metadata,
+                              published_at = case
+                                when excluded.status = 'published'
+                                  then coalesce(episodes.published_at, now())
+                                else episodes.published_at
+                              end,
+                              updated_at = now()
+                where episodes.generation_job_id = excluded.generation_job_id
                 returning *
                 """
             ),
             {**payload, "metadata": json.dumps(payload.get("metadata", {}))},
         )
         await self.session.commit()
-        return dict(result.mappings().one())
+        row = result.mappings().first()
+        if row:
+            return dict(row)
+        raise RuntimeError(f"Episode slug already exists for another job: {payload['slug']}")
 
     async def create_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
         result = await self.session.execute(
@@ -346,6 +392,13 @@ class EpisodeRepository:
                   :episode_id, :asset_type, :r2_key, :public_url, :mime_type,
                   :size_bytes, :checksum_sha256, cast(:metadata as jsonb)
                 )
+                on conflict (episode_id, asset_type)
+                do update set r2_key = excluded.r2_key,
+                              public_url = excluded.public_url,
+                              mime_type = excluded.mime_type,
+                              size_bytes = excluded.size_bytes,
+                              checksum_sha256 = excluded.checksum_sha256,
+                              metadata = excluded.metadata
                 returning *
                 """
             ),

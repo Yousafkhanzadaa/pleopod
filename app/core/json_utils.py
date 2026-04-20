@@ -1,6 +1,10 @@
 import json
 import re
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum
 from typing import Any
+from uuid import UUID
 
 
 def extract_json(text: str) -> Any:
@@ -25,4 +29,16 @@ def extract_json(text: str) -> Any:
 
 
 def to_pretty_json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
+    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False, default=_json_default)
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")

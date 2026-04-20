@@ -1,9 +1,30 @@
-from app.core.json_utils import extract_json
+import json
+from datetime import UTC, datetime
+from decimal import Decimal
+from uuid import UUID
+
+from app.core.json_utils import extract_json, to_pretty_json
 from app.core.text import chunk_dialogue, slugify
 
 
 def test_extract_json_from_fenced_block() -> None:
     assert extract_json('```json\n{"ok": true}\n```') == {"ok": True}
+
+
+def test_to_pretty_json_serializes_db_native_values() -> None:
+    data = {
+        "id": UUID("3363a4ed-6a4d-449b-a8bd-3a6edec0c60b"),
+        "created_at": datetime(2026, 4, 21, 2, 53, tzinfo=UTC),
+        "confidence": Decimal("0.700"),
+    }
+
+    encoded = json.loads(to_pretty_json(data))
+
+    assert encoded == {
+        "id": "3363a4ed-6a4d-449b-a8bd-3a6edec0c60b",
+        "created_at": "2026-04-21T02:53:00+00:00",
+        "confidence": "0.700",
+    }
 
 
 def test_slugify() -> None:

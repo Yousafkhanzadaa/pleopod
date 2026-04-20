@@ -4,9 +4,10 @@ import base64
 import logging
 from typing import Any
 
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.core.config import Settings
+from app.core.tts import coerce_gemini_tts_voice_name
 from app.providers.ai import (
     AIProvider,
     AudioGeneration,
@@ -17,6 +18,13 @@ from app.providers.ai import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _is_retryable_tts_error(exc: BaseException) -> bool:
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code == 429 or code >= 500
+    return True
 
 
 class GeminiAIProvider(AIProvider):
@@ -109,23 +117,48 @@ class GeminiAIProvider(AIProvider):
             )
         raise RuntimeError("Gemini image generation returned no image data")
 
-    @retry(
-        wait=wait_exponential(multiplier=2, min=2, max=30),
-        stop=stop_after_attempt(5),
-        reraise=True,
-    )
     async def generate_tts(
         self,
         prompt: str,
         model: str,
         speakers: list[SpeakerVoice],
     ) -> AudioGeneration:
-        from google.genai import types
-
         if len(speakers) > 2:
             raise ValueError("Gemini multi-speaker TTS currently supports up to 2 speakers")
         if not prompt.strip():
             raise ValueError("Gemini TTS prompt cannot be empty")
+
+        speakers = self._normalize_tts_speakers(speakers)
+        last_error: Exception | None = None
+        for candidate_model in self._tts_candidate_models(model):
+            try:
+                return await self._generate_tts_with_retry(prompt, candidate_model, speakers)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                logger.warning(
+                    "Gemini TTS failed model=%s prompt_chars=%s error=%s",
+                    candidate_model,
+                    len(prompt),
+                    exc,
+                )
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("No Gemini TTS model configured")
+
+    @retry(
+        wait=wait_exponential(multiplier=2, min=2, max=30),
+        stop=stop_after_attempt(5),
+        retry=retry_if_exception(_is_retryable_tts_error),
+        reraise=True,
+    )
+    async def _generate_tts_with_retry(
+        self,
+        prompt: str,
+        model: str,
+        speakers: list[SpeakerVoice],
+    ) -> AudioGeneration:
+        from google.genai import types
 
         speaker_voice_configs = [
             types.SpeakerVoiceConfig(
@@ -171,6 +204,33 @@ class GeminiAIProvider(AIProvider):
         if not isinstance(data, bytes):
             raise RuntimeError("Gemini TTS returned audio data in an unsupported format")
         return AudioGeneration(pcm_data=data, sample_rate=24000)
+
+    def _tts_candidate_models(self, model: str) -> list[str]:
+        models = [model]
+        fallback_model = self.settings.gemini_tts_fallback_model
+        if fallback_model and fallback_model not in models:
+            models.append(fallback_model)
+        return models
+
+    def _normalize_tts_speakers(self, speakers: list[SpeakerVoice]) -> list[SpeakerVoice]:
+        normalized = []
+        for index, speaker in enumerate(speakers):
+            voice_name = coerce_gemini_tts_voice_name(speaker.voice_name, index)
+            if voice_name != speaker.voice_name:
+                logger.warning(
+                    "Normalizing Gemini TTS voice speaker=%s voice=%s resolved_voice=%s",
+                    speaker.speaker,
+                    speaker.voice_name,
+                    voice_name,
+                )
+            normalized.append(
+                SpeakerVoice(
+                    speaker=speaker.speaker,
+                    voice_name=voice_name,
+                    style=speaker.style,
+                )
+            )
+        return normalized
 
     def _extract_citations(self, response: Any) -> list[Citation]:
         try:
