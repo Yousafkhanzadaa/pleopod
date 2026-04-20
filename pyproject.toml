@@ -1,0 +1,58 @@
+[project]
+name = "pleopod-backend"
+version = "0.1.0"
+description = "AI-agent podcast generation backend built with FastAPI, Supabase Postgres/Queues, and Cloudflare R2."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "pydantic>=2.10,<3.0",
+  "pydantic-settings>=2.7,<3.0",
+  "sqlalchemy[asyncio]>=2.0,<3.0",
+  "asyncpg>=0.30,<1.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "boto3>=1.35,<2.0",
+  "httpx>=0.28,<1.0",
+  "python-jose[cryptography]>=3.3,<4.0",
+  "python-multipart>=0.0.20,<1.0",
+  "orjson>=3.10,<4.0",
+  "tenacity>=9.0,<10.0",
+  "google-genai>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9.0",
+  "pytest-asyncio>=0.25,<1.0",
+  "ruff>=0.9,<1.0",
+  "mypy>=1.14,<2.0",
+]
+
+[project.scripts]
+pleopod-api = "app.serve:main"
+pleopod-worker = "app.worker.runner:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true

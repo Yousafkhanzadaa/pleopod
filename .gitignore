@@ -1,0 +1,73 @@
+# macOS / system files
+.DS_Store
+Thumbs.db
+
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python packaging / build output
+dist/
+build/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Test, lint, type-check, and coverage output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# Local generated artifacts
+local-artifacts/
+tmp/
+temp/
+*.log
+logs/
+
+# Generated podcast/media files
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.flac
+*.webm
+*.mp4
+*.mov
+
+# Local database / Supabase runtime artifacts
+*.db
+*.sqlite
+*.sqlite3
+supabase/.branches/
+supabase/.temp/
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker/local runtime
+.docker/
+docker-data/

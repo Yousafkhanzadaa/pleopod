@@ -1,0 +1,17 @@
+services:
+  api:
+    build: .
+    command: pleopod-api
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./local-artifacts:/app/local-artifacts
+
+  worker:
+    build: .
+    command: pleopod-worker
+    env_file: .env
+    volumes:
+      - ./local-artifacts:/app/local-artifacts
+
