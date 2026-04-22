@@ -10,6 +10,33 @@ from app.db.repositories import KnowledgeRepository
 from app.models.enums import ArtifactType, PipelineStep
 
 
+def build_research_memory_markdown(
+    job: dict[str, Any],
+    research: dict[str, Any],
+) -> str:
+    now = datetime.now(UTC).isoformat()
+    lines = [
+        f"# Research Memory: {job['topic']}",
+        "",
+        f"- Category: {job['category']}",
+        f"- Audience: {job['audience']}",
+        f"- Generated at: {now}",
+        "",
+        "## Summary",
+        research.get("summary", ""),
+        "",
+        "## Key Points",
+    ]
+    lines.extend(f"- {point}" for point in research.get("key_points", []))
+    lines.extend(["", "## Claims"])
+    for claim in research.get("claims", []):
+        lines.append(
+            f"- {claim.get('claim_text')} Sources: {', '.join(claim.get('source_urls', []))}"
+        )
+    lines.extend(["", "## Sources", "```json", to_pretty_json(research.get("sources", [])), "```"])
+    return "\n".join(lines)
+
+
 class ResearchAgent(PipelineAgent):
     name = "research_agent"
     step = PipelineStep.RESEARCH
@@ -44,7 +71,7 @@ class ResearchAgent(PipelineAgent):
         research["sources"] = sources
         claims = research.get("claims", [])
 
-        memory = self._memory_markdown(job, research)
+        memory = build_research_memory_markdown(job, research)
         service = context.artifact_service
         job_id = str(job["id"])
         await service.put_text(
@@ -77,30 +104,5 @@ class ResearchAgent(PipelineAgent):
         await knowledge_repo.replace_sources(job_id, sources)
         await knowledge_repo.replace_claims(job_id, claims)
         return AgentResult(
-            output_artifact_id=str(claim_artifact["id"]), next_step=PipelineStep.RESEARCH_REVIEW
+            output_artifact_id=str(claim_artifact["id"]), next_step=PipelineStep.SCRIPT
         )
-
-    def _memory_markdown(self, job: dict[str, Any], research: dict[str, Any]) -> str:
-        now = datetime.now(UTC).isoformat()
-        lines = [
-            f"# Research Memory: {job['topic']}",
-            "",
-            f"- Category: {job['category']}",
-            f"- Audience: {job['audience']}",
-            f"- Generated at: {now}",
-            "",
-            "## Summary",
-            research.get("summary", ""),
-            "",
-            "## Key Points",
-        ]
-        lines.extend(f"- {point}" for point in research.get("key_points", []))
-        lines.extend(["", "## Claims"])
-        for claim in research.get("claims", []):
-            lines.append(
-                f"- {claim.get('claim_text')} Sources: {', '.join(claim.get('source_urls', []))}"
-            )
-        lines.extend(
-            ["", "## Sources", "```json", to_pretty_json(research.get("sources", [])), "```"]
-        )
-        return "\n".join(lines)

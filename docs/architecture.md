@@ -26,7 +26,7 @@ Important doc-backed decisions:
 - Long media-generation work does not live inside hosted Supabase Edge Functions.
 - R2 is used for generated artifacts and published media because it is S3-compatible and avoids egress fees.
 - Gemini 3.1 Flash TTS Preview is treated as a two-speaker MVP path, chunked for longer episodes.
-- Gemini Google Search grounding and URL context are used by the research/review layer.
+- Gemini Google Search grounding and URL context are used by the research layer.
 
 ## System Shape
 
@@ -88,7 +88,6 @@ REQUIRE_HUMAN_APPROVAL=true
 
 Then the pipeline pauses:
 
-- after research review
 - after script verification
 
 Use admin endpoints to approve and continue.

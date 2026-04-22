@@ -38,7 +38,7 @@ create table if not exists generation_jobs (
   updated_at timestamptz not null default now(),
   constraint generation_jobs_status_check check (
     status in (
-      'queued', 'running', 'awaiting_research_approval', 'awaiting_script_approval',
+      'queued', 'running', 'awaiting_script_approval',
       'completed', 'failed', 'canceled'
     )
   )
@@ -209,7 +209,6 @@ do $$
 declare
   queue_names text[] := array[
     'research_queue',
-    'research_review_queue',
     'script_queue',
     'fact_check_queue',
     'thumbnail_queue',

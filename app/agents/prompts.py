@@ -54,40 +54,6 @@ JSON shape:
 """.strip()
 
 
-def research_review_prompt(research: Any) -> str:
-    return f"""
-You are the Research Review Agent.
-Verify and repair this research dossier before any script is written.
-
-Tasks:
-- Check whether claims are supported by sources.
-- Mark weakly supported claims as "needs_context"; do not output "weakly_supported".
-- Improve claims when they are vague or misleading.
-- Keep only claims useful for a factual Tech podcast.
-- Return JSON only.
-
-Input research:
-{to_pretty_json(research)}
-
-JSON shape:
-{{
-  "verdict": "approved | needs_more_research | rejected",
-  "score": 0.0,
-  "issues": ["issue"],
-  "fixed_claims": [
-    {{
-      "claim_text": "atomic factual claim",
-      "source_urls": ["https://..."],
-      "verification_status": "supported | unsupported | misleading | needs_context",
-      "confidence": 0.0,
-      "notes": "review note"
-    }}
-  ],
-  "review_summary": "human-readable review"
-}}
-""".strip()
-
-
 def script_prompt(job: dict[str, Any], memory_md: str, claims: Any) -> str:
     return f"""
 You are the Podcast Script Agent for Pleopod.
@@ -104,6 +70,9 @@ Tone: {job["tone"]}
 TTS rules:
 - Use exactly two speakers.
 - Speaker names must be stable and simple.
+- Use the exact speaker labels `Arman:` and `Maya:` in the transcript body.
+- Every spoken line must start with either `Arman:` or `Maya:`.
+- Do not wrap speaker labels in markdown like `**Arman:**`.
 - Voice names must be Gemini TTS prebuilt voices, such as Charon and Puck.
 - Do not use Google Cloud TTS voice ids such as en-US-Neural2-C.
 - Keep the transcript clean: no markdown tables, no citations spoken aloud, no URLs in dialogue.
@@ -130,6 +99,43 @@ JSON shape:
     {{"name": "Maya", "role": "Analyst", "voice_name": "Puck", "style": "curious, energetic"}}
   ],
   "transcript": "TTS the following conversation between Arman and Maya:\\n\\n...",
+  "used_claims": ["claim text"]
+}}
+""".strip()
+
+
+def script_repair_prompt(script: Any, validation_error: str) -> str:
+    return f"""
+You previously returned a podcast script JSON that failed backend validation.
+Repair it and return JSON only.
+
+Validation error:
+{validation_error}
+
+Hard requirements:
+- Keep exactly two speakers.
+- Preserve the episode topic, title, summary, description, and used claims when possible.
+- Transcript dialogue lines must use only the exact labels `Arman:` and `Maya:`.
+- Do not use markdown around speaker labels.
+- Do not use alternate labels such as `Host:`, `Analyst:`, `Speaker 1:`, or `**Arman:**`.
+
+Current script JSON:
+{to_pretty_json(script)}
+
+Return JSON with this shape:
+{{
+  "title": "episode title",
+  "slug": "url-safe-slug",
+  "summary": "short summary",
+  "description": "app-ready description",
+  "speakers": [
+    {{"name": "Arman", "role": "Host", "voice_name": "Charon", "style": "clear, warm"}},
+    {{"name": "Maya", "role": "Analyst", "voice_name": "Puck", "style": "curious, energetic"}}
+  ],
+  "transcript": (
+    "TTS the following conversation between Arman and Maya:\\n\\n"
+    "Arman: ...\\nMaya: ..."
+  ),
   "used_claims": ["claim text"]
 }}
 """.strip()

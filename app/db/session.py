@@ -42,3 +42,11 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 async def get_db_session() -> AsyncIterator[AsyncSession]:
     async with get_sessionmaker()() as session:
         yield session
+
+
+async def dispose_engine() -> None:
+    global _engine, _sessionmaker
+    if _engine is not None:
+        await _engine.dispose()
+    _engine = None
+    _sessionmaker = None

@@ -9,13 +9,31 @@ from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.queue import QueueRepository
 from app.db.repositories import JobRepository
-from app.db.session import get_sessionmaker
+from app.db.session import dispose_engine, get_sessionmaker
 from app.models.enums import AgentStatus, JobStatus, PipelineStep
 from app.providers.factory import create_ai_provider
 from app.providers.storage import create_storage
 from app.worker.pipeline import AGENTS, QUEUE_TO_STEP, STEP_TO_QUEUE
 
 logger = logging.getLogger(__name__)
+
+
+def should_skip_job_message(job: dict[str, Any], step: PipelineStep) -> bool:
+    status = JobStatus(job["status"])
+    if status in {JobStatus.CANCELED, JobStatus.COMPLETED, JobStatus.FAILED}:
+        return True
+
+    current_step = job.get("current_step")
+    if not current_step or status == JobStatus.RUNNING:
+        return False
+
+    try:
+        normalized_current_step = PipelineStep(current_step)
+    except ValueError:
+        # Allow jobs carrying retired step values to continue on the new pipeline.
+        return False
+
+    return normalized_current_step != step
 
 
 class PipelineWorker:
@@ -81,8 +99,15 @@ class PipelineWorker:
             job = await job_repo.get_job(job_id)
             if not job:
                 raise RuntimeError(f"Generation job not found: {job_id}")
-            if job["status"] == JobStatus.CANCELED:
-                logger.info("Skipping canceled job %s", job_id)
+            if should_skip_job_message(job, step):
+                logger.info(
+                    "Skipping message for job %s queue=%s step=%s status=%s current_step=%s",
+                    job_id,
+                    queue_name,
+                    step,
+                    job["status"],
+                    job.get("current_step"),
+                )
                 return
 
             await job_repo.update_job(
@@ -100,9 +125,15 @@ class PipelineWorker:
                 storage=self.storage,
                 ai=self.ai,
             )
+            heartbeat_stop = asyncio.Event()
+            heartbeat_task = asyncio.create_task(
+                self._heartbeat_message(queue_name, msg_id, heartbeat_stop)
+            )
             try:
                 result = await agent.run(job, context, message)
             except Exception as exc:  # noqa: BLE001
+                heartbeat_stop.set()
+                await heartbeat_task
                 await session.rollback()
                 await job_repo.finish_agent_run(run["id"], AgentStatus.FAILED, error=str(exc))
                 if read_ct >= self.settings.max_agent_attempts:
@@ -114,6 +145,8 @@ class PipelineWorker:
                         error=f"Attempt {read_ct} failed: {exc}",
                     )
                 raise
+            heartbeat_stop.set()
+            await heartbeat_task
 
             await job_repo.finish_agent_run(
                 run["id"],
@@ -134,6 +167,34 @@ class PipelineWorker:
                     },
                 )
 
+    async def _heartbeat_message(
+        self,
+        queue_name: str,
+        msg_id: int,
+        stop_event: asyncio.Event,
+    ) -> None:
+        interval_seconds = max(30, self.settings.queue_visibility_timeout_seconds // 3)
+        while True:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+                return
+            except TimeoutError:
+                pass
+
+            async with self.sessionmaker() as session:
+                updated = await QueueRepository(session).set_vt(
+                    queue_name,
+                    msg_id,
+                    self.settings.queue_visibility_timeout_seconds,
+                )
+                if not updated:
+                    logger.warning(
+                        "Could not extend queue visibility timeout queue=%s msg_id=%s",
+                        queue_name,
+                        msg_id,
+                    )
+                    return
+
     async def _fail_message(
         self,
         queue_name: str,
@@ -153,11 +214,17 @@ class PipelineWorker:
 async def async_main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
-    await PipelineWorker(settings).run_forever()
+    try:
+        await PipelineWorker(settings).run_forever()
+    finally:
+        await dispose_engine()
 
 
 def main() -> None:
-    asyncio.run(async_main())
+    try:
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        logger.info("Pleopod worker stopped")
 
 
 if __name__ == "__main__":

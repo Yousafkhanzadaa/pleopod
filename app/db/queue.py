@@ -88,6 +88,40 @@ class QueueRepository:
         row = result.first()
         return bool(row[0]) if row else False
 
+    async def set_vt(
+        self, queue_name: str, msg_id: int, visibility_timeout_seconds: int
+    ) -> QueueMessage | None:
+        result = await self.session.execute(
+            text(
+                """
+                select msg_id, read_ct, message
+                from pgmq.set_vt(
+                  cast(:queue_name as text),
+                  cast(:msg_id as bigint),
+                  cast(:visibility_timeout_seconds as integer)
+                )
+                """
+            ),
+            {
+                "queue_name": queue_name,
+                "msg_id": msg_id,
+                "visibility_timeout_seconds": visibility_timeout_seconds,
+            },
+        )
+        await self.session.commit()
+        row = result.mappings().first()
+        if not row:
+            return None
+        return QueueMessage(
+            msg_id=int(row["msg_id"]),
+            read_ct=int(row["read_ct"]),
+            message=(
+                row["message"]
+                if isinstance(row["message"], dict)
+                else json.loads(row["message"])
+            ),
+        )
+
     async def archive(self, queue_name: str, msg_id: int) -> bool:
         result = await self.session.execute(
             text("select pgmq.archive(cast(:queue_name as text), cast(:msg_id as bigint))"),

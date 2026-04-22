@@ -47,7 +47,6 @@ Includes agent runs and artifacts.
 ### Approval Gates
 
 ```http
-POST /admin/generation-jobs/{job_id}/approve-research
 POST /admin/generation-jobs/{job_id}/approve-script
 POST /admin/generation-jobs/{job_id}/publish
 ```

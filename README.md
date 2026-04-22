@@ -5,13 +5,12 @@ AI-agent podcast generation backend built with **FastAPI**, **Supabase Postgres/
 The system generates factual Tech podcast episodes through a durable pipeline:
 
 1. Research agent gathers fresh sourced information.
-2. Research review agent verifies and repairs the claim bank.
-3. Script agent writes a Gemini TTS-ready two-speaker script.
-4. Fact verifier checks and fixes the script line by line.
-5. Thumbnail agent creates the cover image.
-6. Audio config agent chooses speaker voices and chunking.
-7. Audio generation agent creates final audio and stores it in R2.
-8. Publisher writes episode metadata into Supabase.
+2. Script agent writes a Gemini TTS-ready two-speaker script.
+3. Fact verifier checks and fixes the script line by line.
+4. Thumbnail agent creates the cover image.
+5. Audio config agent chooses speaker voices and chunking.
+6. Audio generation agent creates final audio and stores it in R2.
+7. Publisher writes episode metadata into Supabase.
 
 ## Stack
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +18,16 @@ def wav_bytes(audio: AudioGeneration) -> bytes:
             wf.setframerate(audio.sample_rate)
             wf.writeframes(audio.pcm_data)
         return Path(tmp.name).read_bytes()
+
+
+def audio_from_wav_bytes(wav_data: bytes) -> AudioGeneration:
+    with wave.open(io.BytesIO(wav_data), "rb") as wf:
+        return AudioGeneration(
+            pcm_data=wf.readframes(wf.getnframes()),
+            sample_rate=wf.getframerate(),
+            channels=wf.getnchannels(),
+            sample_width=wf.getsampwidth(),
+        )
 
 
 def stitch_pcm_to_wav(segments: list[AudioGeneration]) -> bytes:

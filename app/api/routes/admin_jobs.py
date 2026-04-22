@@ -87,32 +87,6 @@ async def cancel_generation_job(
 
 
 @router.post(
-    "/{job_id}/approve-research",
-    response_model=GenerationJobResponse,
-    dependencies=[Depends(admin_dep)],
-)
-async def approve_research(
-    job_id: UUID,
-    _: JobApprovalRequest,
-    session: AsyncSession = Depends(db_session_dep),
-) -> dict:
-    job_repo = JobRepository(session)
-    queue_repo = QueueRepository(session)
-    job = await job_repo.update_job(
-        job_id, status=JobStatus.QUEUED, current_step=PipelineStep.SCRIPT
-    )
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Generation job not found"
-        )
-    await queue_repo.send(
-        STEP_TO_QUEUE[PipelineStep.SCRIPT],
-        {"job_id": str(job_id), "step": PipelineStep.SCRIPT, "attempt": 1},
-    )
-    return job
-
-
-@router.post(
     "/{job_id}/approve-script",
     response_model=GenerationJobResponse,
     dependencies=[Depends(admin_dep)],

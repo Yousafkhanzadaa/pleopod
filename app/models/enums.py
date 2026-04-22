@@ -4,7 +4,6 @@ from enum import StrEnum
 class JobStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
-    AWAITING_RESEARCH_APPROVAL = "awaiting_research_approval"
     AWAITING_SCRIPT_APPROVAL = "awaiting_script_approval"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -25,7 +24,6 @@ class AgentStatus(StrEnum):
 
 class PipelineStep(StrEnum):
     RESEARCH = "research"
-    RESEARCH_REVIEW = "research_review"
     SCRIPT = "script"
     FACT_CHECK = "fact_check"
     THUMBNAIL = "thumbnail"
@@ -39,7 +37,6 @@ class ArtifactType(StrEnum):
     RESEARCH_JSON = "research_json"
     SOURCES_JSON = "sources_json"
     CLAIM_BANK_JSON = "claim_bank_json"
-    RESEARCH_REVIEW_MD = "research_review_md"
     SCRIPT_JSON = "script_json"
     SCRIPT_MD = "script_md"
     VERIFIED_SCRIPT_JSON = "verified_script_json"

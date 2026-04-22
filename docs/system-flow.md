@@ -24,8 +24,7 @@ flowchart TD
   B --> C["FastAPI sends message to research_queue"]
   C --> D["Worker picks queue message"]
   D --> E["Research Agent"]
-  E --> F["Research Review Agent"]
-  F --> G["Script Writer Agent"]
+  E --> G["Script Writer Agent"]
   G --> H["Fact Verification Agent"]
   H --> I["Thumbnail Agent"]
   I --> J["Audio Config Agent"]
@@ -82,7 +81,6 @@ to the artifacts.
 The worker continuously checks Supabase queues:
 
 - `research_queue`
-- `research_review_queue`
 - `script_queue`
 - `fact_check_queue`
 - `thumbnail_queue`
@@ -134,45 +132,12 @@ jobs/{job_id}/research/claim_bank.json
 
 This is the memory layer. Every later agent depends on this researched data.
 
-## 4. Research Review Agent
-
-The Research Review Agent checks the research before script writing.
-
-It asks:
-
-- are the claims supported?
-- are the sources strong enough?
-- are there weak or misleading claims?
-- should anything be removed, rewritten, or downgraded?
-
-It outputs:
-
-```text
-jobs/{job_id}/research/research_review.md
-jobs/{job_id}/research/claim_bank.reviewed.json
-```
-
-If `REQUIRE_HUMAN_APPROVAL=true`, the system pauses here and sets the job status
-to:
-
-```text
-awaiting_research_approval
-```
-
-An admin must then call:
-
-```http
-POST /admin/generation-jobs/{job_id}/approve-research
-```
-
-This approval gate is important for early product quality.
-
-## 5. Script Writer Agent
+## 4. Script Writer Agent
 
 The Script Writer Agent reads:
 
 - `memory.md`
-- reviewed `claim_bank.json`
+- `claim_bank.json`
 - job settings such as topic, audience, tone, language, and duration
 
 It writes a two-speaker podcast script.
@@ -206,14 +171,14 @@ The JSON includes:
 - transcript
 - used claims
 
-## 6. Fact Verification Agent
+## 5. Fact Verification Agent
 
 The Fact Verification Agent reviews the script line by line.
 
 It reads:
 
 - the generated script
-- the reviewed claim bank
+- the researched claim bank
 
 Then it checks:
 
@@ -245,7 +210,7 @@ POST /admin/generation-jobs/{job_id}/approve-script
 This step prevents the system from turning weak research into polished-sounding
 but inaccurate audio.
 
-## 7. Thumbnail Agent
+## 6. Thumbnail Agent
 
 The Thumbnail Agent reads the verified script and generates a thumbnail prompt.
 
@@ -265,7 +230,7 @@ Later this can be upgraded with strict brand rules:
 - no fake logos
 - no unreadable tiny text
 
-## 8. Audio Config Agent
+## 7. Audio Config Agent
 
 The Audio Config Agent prepares the verified transcript for TTS.
 
@@ -297,7 +262,7 @@ Example speaker config:
 }
 ```
 
-## 9. Audio Generation Agent
+## 8. Audio Generation Agent
 
 The Audio Generation Agent reads `tts_config.json`.
 
@@ -319,7 +284,7 @@ jobs/{job_id}/audio/final.mp3
 If `ffmpeg` is available, the system exports MP3. The Dockerfile installs
 `ffmpeg`, so production should export MP3 correctly.
 
-## 10. Publisher Agent
+## 9. Publisher Agent
 
 The Publisher Agent creates the final episode record in Supabase.
 
@@ -435,4 +400,3 @@ The agents are not random chatbots. They are controlled production steps with
 inputs, outputs, retries, and stored evidence.
 
 That is what makes the system scalable, debuggable, and sellable.
-

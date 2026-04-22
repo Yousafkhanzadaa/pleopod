@@ -42,8 +42,8 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_research_model: str = "gemini-2.5-flash"
     gemini_script_model: str = "gemini-2.5-flash"
-    gemini_verification_model: str = "gemini-2.5-pro"
-    gemini_tts_model: str = "gemini-3.1-flash-tts-preview"
+    gemini_verification_model: str = "gemini-2.5-flash"
+    gemini_tts_model: str = "gemini-2.5-flash-preview-tts"
     gemini_tts_fallback_model: str | None = "gemini-2.5-flash-preview-tts"
     gemini_image_model: str = "gemini-2.5-flash-image"
 

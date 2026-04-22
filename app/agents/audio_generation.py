@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sqlalchemy import text
@@ -8,7 +9,9 @@ from app.agents.audio_config import build_tts_config, tts_config_needs_rebuild
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.models.enums import ArtifactType, PipelineStep
 from app.providers.ai import AudioGeneration, SpeakerVoice
-from app.services.audio import stitch_pcm_to_wav, wav_bytes, wav_to_mp3
+from app.services.audio import audio_from_wav_bytes, stitch_pcm_to_wav, wav_bytes, wav_to_mp3
+
+logger = logging.getLogger(__name__)
 
 
 class AudioGenerationAgent(PipelineAgent):
@@ -19,6 +22,16 @@ class AudioGenerationAgent(PipelineAgent):
         self, job: dict[str, Any], context: AgentContext, message: dict[str, Any]
     ) -> AgentResult:
         job_id = str(job["id"])
+        existing_final = await context.artifact_repo.get_latest_for_job(
+            job_id, ArtifactType.FINAL_AUDIO
+        )
+        if existing_final:
+            logger.info("Final audio already exists for job %s, skipping regeneration", job_id)
+            return AgentResult(
+                output_artifact_id=str(existing_final["id"]),
+                next_step=PipelineStep.PUBLISH,
+            )
+
         config = await context.latest_json(job_id, ArtifactType.TTS_CONFIG_JSON)
         if tts_config_needs_rebuild(config):
             script = await context.latest_json(job_id, ArtifactType.VERIFIED_SCRIPT_JSON)
@@ -39,9 +52,27 @@ class AudioGenerationAgent(PipelineAgent):
             for item in config["speakers"]
         ]
         audio_segments: list[AudioGeneration] = []
+        chunk_count = len(config["chunks"])
         for chunk in config["chunks"]:
             index = int(chunk["index"])
             transcript = chunk["transcript"]
+            existing_segment = await self._get_completed_segment_audio(context, job_id, index)
+            if existing_segment is not None:
+                logger.info(
+                    "Reusing completed TTS segment %s/%s for job %s",
+                    index,
+                    chunk_count,
+                    job_id,
+                )
+                audio_segments.append(existing_segment)
+                continue
+
+            logger.info(
+                "Generating TTS chunk %s/%s for job %s",
+                index,
+                chunk_count,
+                job_id,
+            )
             await self._upsert_segment(context, job_id, index, transcript, "running")
             audio = await context.ai.generate_tts(
                 prompt=transcript,
@@ -85,6 +116,32 @@ class AudioGenerationAgent(PipelineAgent):
             metadata={"segment_count": len(audio_segments)},
         )
         return AgentResult(output_artifact_id=str(artifact["id"]), next_step=PipelineStep.PUBLISH)
+
+    async def _get_completed_segment_audio(
+        self,
+        context: AgentContext,
+        job_id: str,
+        index: int,
+    ) -> AudioGeneration | None:
+        result = await context.session.execute(
+            text(
+                """
+                select r2_key
+                from tts_segments
+                where job_id = :job_id
+                  and segment_index = :segment_index
+                  and status = 'completed'
+                  and r2_key is not null
+                """
+            ),
+            {"job_id": job_id, "segment_index": index},
+        )
+        row = result.mappings().first()
+        if not row:
+            return None
+
+        wav_data = await context.storage.get_bytes(row["r2_key"])
+        return audio_from_wav_bytes(wav_data)
 
     async def _upsert_segment(
         self,

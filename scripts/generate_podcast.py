@@ -11,11 +11,17 @@ import httpx
 from app.core.config import Settings
 
 TERMINAL_STATUSES = {"completed", "failed", "canceled"}
+BACKEND_MIN_DURATION_SECONDS = 120
+BACKEND_MAX_TONE_CHARS = 200
+SMOKE_TEST_MIN_DURATION_SECONDS = 30
+SMOKE_TEST_MAX_DURATION_SECONDS = 60
+SMOKE_TEST_MAX_WORDS = 140
+SMOKE_TEST_MAX_TURNS = 6
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Create a podcast generation job, poll it, and print the final audio URL."
+        description="Create a short smoke-test podcast job and print the final audio URL."
     )
     parser.add_argument("topic", help="Podcast topic to generate.")
     parser.add_argument("--api-url", default="http://localhost:8000", help="Pleopod API base URL.")
@@ -24,7 +30,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--category", default="Tech")
     parser.add_argument("--audience", default="curious tech listeners and startup builders")
-    parser.add_argument("--duration", type=int, default=300, help="Target duration in seconds.")
+    parser.add_argument(
+        "--duration",
+        type=int,
+        default=SMOKE_TEST_MAX_DURATION_SECONDS,
+        help=(
+            "Smoke-test target duration in seconds. "
+            f"Values are clamped to {SMOKE_TEST_MIN_DURATION_SECONDS}-"
+            f"{SMOKE_TEST_MAX_DURATION_SECONDS} seconds."
+        ),
+    )
     parser.add_argument("--language", default="en")
     parser.add_argument("--tone", default="clear, smart, conversational")
     parser.add_argument("--source-url", action="append", default=[], help="Optional source URL.")
@@ -38,6 +53,34 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def smoke_test_duration_seconds(requested_duration: int) -> int:
+    return max(
+        SMOKE_TEST_MIN_DURATION_SECONDS,
+        min(requested_duration, SMOKE_TEST_MAX_DURATION_SECONDS),
+    )
+
+
+def backend_request_duration_seconds(desired_duration_seconds: int) -> int:
+    return max(desired_duration_seconds, BACKEND_MIN_DURATION_SECONDS)
+
+
+def build_smoke_test_tone(base_tone: str, desired_duration_seconds: int) -> str:
+    base = base_tone.strip().rstrip(".")
+    smoke_test_instruction = (
+        f"smoke test: ~{desired_duration_seconds}s, <= {SMOKE_TEST_MAX_WORDS} words, "
+        f"<= {SMOKE_TEST_MAX_TURNS} turns, no filler"
+    )
+    if not base:
+        return smoke_test_instruction
+
+    separator = ". "
+    max_base_chars = BACKEND_MAX_TONE_CHARS - len(separator) - len(smoke_test_instruction)
+    trimmed_base = base[: max(max_base_chars, 0)].rstrip(" ,.;:")
+    if not trimmed_base:
+        return smoke_test_instruction
+    return f"{trimmed_base}{separator}{smoke_test_instruction}"
+
+
 def admin_headers(admin_key: str | None) -> dict[str, str]:
     headers = {"content-type": "application/json"}
     if admin_key:
@@ -48,13 +91,14 @@ def admin_headers(admin_key: str | None) -> dict[str, str]:
 def create_job(
     client: httpx.Client, args: argparse.Namespace, admin_key: str | None
 ) -> dict[str, Any]:
+    desired_duration_seconds = smoke_test_duration_seconds(args.duration)
     payload = {
         "topic": args.topic,
         "category": args.category,
         "audience": args.audience,
-        "target_duration_seconds": args.duration,
+        "target_duration_seconds": backend_request_duration_seconds(desired_duration_seconds),
         "language": args.language,
-        "tone": args.tone,
+        "tone": build_smoke_test_tone(args.tone, desired_duration_seconds),
         "source_urls": args.source_url,
         "auto_publish": not args.draft,
     }
@@ -147,6 +191,15 @@ def main() -> int:
 
         job_id = job["id"]
         print(f"Created job: {job_id}")
+        desired_duration_seconds = smoke_test_duration_seconds(args.duration)
+        print(
+            "Smoke-test target duration: "
+            f"{desired_duration_seconds} seconds."
+        )
+        print(
+            "Backend requested duration: "
+            f"{backend_request_duration_seconds(desired_duration_seconds)} seconds."
+        )
         print("Polling until completion. Keep pleopod-worker running in another terminal.")
 
         deadline = time.monotonic() + args.timeout_seconds
