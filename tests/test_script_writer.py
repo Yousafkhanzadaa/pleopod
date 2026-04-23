@@ -76,7 +76,12 @@ class _Context:
                 self.outer = outer
                 self.calls: list[str] = []
 
-            async def generate_text(self, prompt: str, model: str) -> SimpleNamespace:
+            async def generate_text(
+                self,
+                prompt: str,
+                model: str,
+                response_schema: object | None = None,
+            ) -> SimpleNamespace:
                 self.calls.append(prompt)
                 payload = self.outer._responses.pop(0)
                 return SimpleNamespace(text=json.dumps(payload))

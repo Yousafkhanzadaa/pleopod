@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 CLAIM_VERIFICATION_STATUSES = {
@@ -442,3 +442,27 @@ class EpisodeRepository:
             {"episode_id": str(episode_id)},
         )
         return [dict(row) for row in result.mappings().all()]
+
+    async def get_assets_for_episodes(
+        self, episode_ids: list[UUID | str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        if not episode_ids:
+            return {}
+
+        stmt = text(
+            """
+            select *
+            from episode_assets
+            where episode_id in :episode_ids
+            order by episode_id, created_at asc
+            """
+        ).bindparams(bindparam("episode_ids", expanding=True))
+        result = await self.session.execute(
+            stmt,
+            {"episode_ids": [str(episode_id) for episode_id in episode_ids]},
+        )
+        assets_by_episode: dict[str, list[dict[str, Any]]] = {}
+        for row in result.mappings().all():
+            asset = dict(row)
+            assets_by_episode.setdefault(str(asset["episode_id"]), []).append(asset)
+        return assets_by_episode

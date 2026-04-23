@@ -1,6 +1,6 @@
 # Pleopod Backend Report
 
-Reviewed on April 21, 2026.
+Reviewed on April 24, 2026.
 
 ## Executive Summary
 
@@ -243,8 +243,6 @@ Strengths:
 
 Current caveats:
 
-- JWKS cache is process-global and not keyed by URL, so it assumes one Supabase JWKS source per process
-- JWKS network failures are not wrapped into cleaner auth failures
 - local development without `ADMIN_API_KEY` intentionally weakens protection for convenience
 
 ## Data Layer and Persistence Strategy
@@ -689,9 +687,11 @@ The prompting philosophy is plain and schema-oriented:
 - request JSON-only output
 - embed expected JSON shapes inline
 
-The code does not currently pass strict JSON schemas to Gemini for these agent calls, even though the provider supports an optional `response_schema`. Instead, the project relies on prompt discipline plus `extract_json()` tolerance.
-
-That keeps the code simple, but it leaves some correctness dependent on model compliance.
+The backend now pairs prompt discipline with typed Pydantic validation for model outputs.
+Orchestration, script writing, and verification pass JSON schemas to Gemini when the
+configured model supports the requested mode. Research still uses Google Search and URL
+context tools; with Gemini 2.5 models that path relies on JSON prompting plus validation,
+while Gemini 3 configurations can combine built-in tools with structured output.
 
 ## Artifact Strategy
 
@@ -802,12 +802,14 @@ Notable implementation details:
 - TTS retries more aggressively and can fall back to a second TTS model
 - voice names are normalized to Gemini’s supported prebuilt voices
 - Google Search and URL context tools are conditionally enabled
+- synchronous SDK calls are isolated with `asyncio.to_thread(...)`
 
 ### Important Runtime Note
 
-The provider methods are declared `async`, but the underlying Gemini client calls are synchronous in the current implementation. That means these calls block the event loop while they run.
-
-Because the worker is already sequential, this does not break correctness, but it does cap concurrency and would matter more if the worker were scaled up within one process.
+The Google GenAI SDK calls used here are synchronous. The provider wraps those calls in
+`asyncio.to_thread(...)` so long Gemini requests do not block the worker event loop or
+queue heartbeat task. The worker still processes pipeline messages conservatively, but
+the provider no longer blocks unrelated async housekeeping inside the process.
 
 ## Text and Audio Utility Layer
 
@@ -942,7 +944,7 @@ PYTHONPATH=. .venv/bin/pytest -q
 
 Result:
 
-- `26 passed in 0.72s`
+- `39 passed in 0.77s`
 
 ### What The Tests Cover Well
 
@@ -951,12 +953,13 @@ Result:
 - TTS transcript normalization and chunk-config safety
 - fake provider audio output
 - JWT verification via inline JWKS
+- admin job creation and operator guard behavior
 - worker stale-message skip rules
 - audio-generation short-circuit when final audio already exists
 
 ### What Is Not Covered Much
 
-- admin routes beyond the health endpoint
+- full admin route behavior against a real database
 - end-to-end pipeline integration
 - real database interaction against a live Postgres/`pgmq`
 - R2 integration
@@ -1005,7 +1008,9 @@ The worker processes one message per queue per loop and does not parallelize wit
 
 ### 2. Async In Name, Mostly Sync In Practice
 
-Gemini calls and some file/audio operations block inside async functions. The system works, but it does not fully benefit from async concurrency.
+The Gemini provider now moves synchronous SDK calls into worker threads, but the overall
+worker remains intentionally sequential. This keeps behavior simple, but throughput is
+still limited until the worker grows controlled parallelism or horizontal scale.
 
 ### 3. Some Schema Elements Are Unused
 
@@ -1015,33 +1020,23 @@ Examples:
 - `claims.used_in_script` is not updated from `used_claims`
 - `duration_seconds` on episodes is left `None`
 - `agent_runs.model` is currently never populated by agents
-- `created_by` on jobs is not set by the route layer
 
-### 4. Approval Notes Are Ignored
-
-`JobApprovalRequest` accepts a note, but the note is not persisted or used.
-
-### 5. Publish Can Be Triggered Early
-
-Manual publish enqueues the publish step even if upstream prerequisites are missing. The publisher will fail later if required artifacts are absent.
-
-### 6. Cancel Is Cooperative, Not Immediate
+### 4. Cancel Is Cooperative, Not Immediate
 
 Canceling a job updates the database state, but it does not interrupt an already-running agent call. It mainly prevents future queued work from continuing.
 
-### 7. Public Episode Retrieval Does N+1 Asset Queries
+### 5. Tool-Augmented Research Still Needs Runtime Validation
 
-`GET /episodes` fetches episode rows, then loads assets per episode. This is acceptable for small lists, but it will eventually be a performance inefficiency.
+Structured Gemini outputs are used for non-tool calls. Research uses Google Search and
+URL context tools, so Gemini 2.5 configurations still depend on JSON prompting followed
+by backend validation. Gemini 3 configurations can combine built-in tools with structured
+output, but this should be tested before making it the production default.
 
-### 8. Model Output Parsing Relies On Prompt Compliance
-
-The system asks Gemini for JSON and then extracts JSON from text. It does not currently enforce structured response schemas on the main agents.
-
-### 9. Audio Post-Processing Is Minimal
+### 6. Audio Post-Processing Is Minimal
 
 Final audio is stitched and optionally converted, but there is no loudness management, fades, intro/outro composition, or timing metadata.
 
-### 10. No Full Integration Harness In Repo
+### 7. No Full Integration Harness In Repo
 
 The pieces are individually reasonable, but the repository does not yet include a true automated end-to-end test against real queue/database/storage components.
 
@@ -1121,7 +1116,7 @@ To mature further, the most likely next moves would be:
 - better concurrency/scaling behavior
 - richer publish metadata
 - improved observability
-- tighter structured model outputs
+- production testing of Gemini 3 structured output with built-in tools
 - more complete use of the existing schema
 
 As it stands, the architecture is coherent, the code is readable, the layering is disciplined, and the system already has the bones of a production-grade content pipeline.

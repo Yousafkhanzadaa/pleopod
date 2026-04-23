@@ -27,7 +27,11 @@ async def list_episodes(
 ) -> list[dict]:
     repo = EpisodeRepository(session)
     episodes = await repo.list_published(limit=limit, offset=offset)
-    return [await _with_assets(session, episode) for episode in episodes]
+    episode_ids = [episode["id"] for episode in episodes]
+    assets_by_episode = await repo.get_assets_for_episodes(episode_ids)
+    for episode in episodes:
+        episode["assets"] = assets_by_episode.get(str(episode["id"]), [])
+    return episodes
 
 
 @router.get("/{slug}", response_model=EpisodeResponse)

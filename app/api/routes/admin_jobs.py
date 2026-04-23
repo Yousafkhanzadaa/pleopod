@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,7 +11,7 @@ from app.api.deps import admin_dep, db_session_dep, settings_dep
 from app.core.config import Settings
 from app.db.queue import QueueRepository
 from app.db.repositories import ArtifactRepository, JobRepository
-from app.models.enums import JobStatus, PipelineStep
+from app.models.enums import ArtifactType, JobStatus, PipelineStep
 from app.providers.factory import create_ai_provider
 from app.schemas.jobs import (
     GenerationJobRequest,
@@ -23,21 +24,51 @@ from app.worker.pipeline import STEP_TO_QUEUE
 router = APIRouter(prefix="/admin/generation-jobs", tags=["admin-generation-jobs"])
 
 
+def _created_by_from_admin_context(admin_context: dict) -> str:
+    claims = admin_context.get("claims") or {}
+    return str(
+        claims.get("sub")
+        or claims.get("email")
+        or claims.get("phone")
+        or admin_context.get("auth_type")
+        or "admin"
+    )
+
+
+async def _require_job_artifacts(
+    artifact_repo: ArtifactRepository,
+    job_id: UUID,
+    artifact_types: list[ArtifactType | str],
+) -> None:
+    missing = []
+    for artifact_type in artifact_types:
+        if not await artifact_repo.get_latest_for_job(job_id, artifact_type):
+            missing.append(str(artifact_type))
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Job is missing required artifacts: {', '.join(missing)}",
+        )
+
+
 @router.post(
     "",
     response_model=GenerationJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(admin_dep)],
 )
 async def create_generation_job(
     payload: GenerationJobRequest,
+    admin_context: dict = Depends(admin_dep),
     session: AsyncSession = Depends(db_session_dep),
     settings: Settings = Depends(settings_dep),
 ) -> dict:
     job_repo = JobRepository(session)
     queue_repo = QueueRepository(session)
     job_payload = await orchestrate_generation_job(payload, create_ai_provider(settings), settings)
-    job = await job_repo.create_job(job_payload.model_dump(mode="json"))
+    job = await job_repo.create_job(
+        job_payload.model_dump(mode="json"),
+        created_by=_created_by_from_admin_context(admin_context),
+    )
     await queue_repo.send(
         STEP_TO_QUEUE[PipelineStep.RESEARCH],
         {"job_id": str(job["id"]), "step": PipelineStep.RESEARCH, "attempt": 1},
@@ -94,17 +125,38 @@ async def cancel_generation_job(
 @router.post(
     "/{job_id}/approve-script",
     response_model=GenerationJobResponse,
-    dependencies=[Depends(admin_dep)],
 )
 async def approve_script(
     job_id: UUID,
-    _: JobApprovalRequest,
+    payload: JobApprovalRequest,
+    admin_context: dict = Depends(admin_dep),
     session: AsyncSession = Depends(db_session_dep),
 ) -> dict:
     job_repo = JobRepository(session)
     queue_repo = QueueRepository(session)
+    artifact_repo = ArtifactRepository(session)
+    job = await job_repo.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Generation job not found"
+        )
+    if job["status"] != JobStatus.AWAITING_SCRIPT_APPROVAL:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job is not awaiting script approval",
+        )
+    await _require_job_artifacts(artifact_repo, job_id, [ArtifactType.VERIFIED_SCRIPT_JSON])
+    metadata = dict(job.get("metadata") or {})
+    metadata["script_approval"] = {
+        "approved_at": datetime.now(UTC).isoformat(),
+        "approved_by": _created_by_from_admin_context(admin_context),
+        "note": payload.note,
+    }
     job = await job_repo.update_job(
-        job_id, status=JobStatus.QUEUED, current_step=PipelineStep.THUMBNAIL
+        job_id,
+        status=JobStatus.QUEUED,
+        current_step=PipelineStep.THUMBNAIL,
+        metadata=metadata,
     )
     if not job:
         raise HTTPException(
@@ -131,6 +183,20 @@ async def publish_generation_job(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Generation job not found"
         )
+    if job["status"] in {JobStatus.CANCELED, JobStatus.FAILED}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot publish a {job['status']} job",
+        )
+    await _require_job_artifacts(
+        ArtifactRepository(session),
+        job_id,
+        [
+            ArtifactType.VERIFIED_SCRIPT_JSON,
+            ArtifactType.THUMBNAIL_IMAGE,
+            ArtifactType.FINAL_AUDIO,
+        ],
+    )
     await queue_repo.send(
         STEP_TO_QUEUE[PipelineStep.PUBLISH],
         {"job_id": str(job_id), "step": PipelineStep.PUBLISH, "attempt": 1, "force_publish": True},

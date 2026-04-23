@@ -35,7 +35,7 @@ class OrchestratedJobPayload(BaseModel):
     target_duration_seconds: int = Field(default=600, ge=120, le=3600)
     language: str = Field(default="en", max_length=16)
     tone: str = Field(default="clear, smart, conversational", max_length=200)
-    source_urls: list[str] = Field(default_factory=list, max_length=20)
+    source_urls: list[HttpUrl] = Field(default_factory=list, max_length=20)
 
 
 class GenerationJobCreate(BaseModel):

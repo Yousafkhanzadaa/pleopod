@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.agents.prompts import orchestration_prompt
 from app.core.config import Settings
-from app.core.json_utils import extract_json
+from app.core.json_utils import parse_model_json
 from app.providers.ai import AIProvider
 from app.schemas.jobs import GenerationJobCreate, GenerationJobRequest, OrchestratedJobPayload
 
@@ -30,7 +30,9 @@ async def orchestrate_generation_job(
         model=settings.gemini_orchestration_model,
         response_schema=OrchestratedJobPayload,
     )
-    draft = OrchestratedJobPayload.model_validate(extract_json(response.text))
+    draft = OrchestratedJobPayload.model_validate(
+        parse_model_json(response.text, OrchestratedJobPayload)
+    )
 
     return GenerationJobCreate(
         topic=draft.topic,
@@ -39,7 +41,7 @@ async def orchestrate_generation_job(
         target_duration_seconds=request.target_duration_seconds or draft.target_duration_seconds,
         language=request.language or draft.language,
         tone=request.tone or draft.tone,
-        source_urls=[str(url) for url in request.source_urls] or draft.source_urls,
+        source_urls=list(request.source_urls) or draft.source_urls,
         auto_publish=request.auto_publish,
         metadata=request.metadata,
     )

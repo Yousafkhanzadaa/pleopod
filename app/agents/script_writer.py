@@ -5,8 +5,9 @@ from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.agents.prompts import script_prompt, script_repair_prompt
-from app.core.json_utils import extract_json
+from app.core.json_utils import parse_model_json
 from app.models.enums import ArtifactType, PipelineStep
+from app.schemas.agent_outputs import PodcastScript
 
 _TTS_PREAMBLE_RE = re.compile(
     r"^\s*TTS\s+the\s+following\s+conversation\s+between\s+[^:\n]+:\s*",
@@ -30,8 +31,9 @@ class ScriptWriterAgent(PipelineAgent):
         response = await context.ai.generate_text(
             prompt=script_prompt(job, memory_md, claims),
             model=context.settings.gemini_script_model,
+            response_schema=PodcastScript,
         )
-        script = extract_json(response.text)
+        script = parse_model_json(response.text, PodcastScript)
         script = self._normalize_script(script)
         try:
             self._validate_script(script)
@@ -74,8 +76,9 @@ class ScriptWriterAgent(PipelineAgent):
         response = await context.ai.generate_text(
             prompt=script_repair_prompt(script, validation_error),
             model=context.settings.gemini_script_model,
+            response_schema=PodcastScript,
         )
-        return extract_json(response.text)
+        return parse_model_json(response.text, PodcastScript)
 
     def _normalize_transcript(self, transcript: str, speakers: list[dict[str, Any]]) -> str:
         speaker_names = [speaker.get("name") for speaker in speakers if speaker.get("name")]

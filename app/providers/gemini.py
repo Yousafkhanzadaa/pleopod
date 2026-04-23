@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from typing import Any
@@ -18,6 +19,17 @@ from app.providers.ai import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _is_gemini_3_model(model: str) -> bool:
+    normalized = model.removeprefix("models/").lower()
+    return normalized.startswith("gemini-3")
+
+
+def _response_json_schema(response_schema: Any) -> Any:
+    if hasattr(response_schema, "model_json_schema"):
+        return response_schema.model_json_schema()
+    return response_schema
 
 
 def _is_retryable_tts_error(exc: BaseException) -> bool:
@@ -60,10 +72,18 @@ class GeminiAIProvider(AIProvider):
         if tools:
             config_kwargs["tools"] = tools
         if response_schema is not None:
-            config_kwargs["response_mime_type"] = "application/json"
-            config_kwargs["response_schema"] = response_schema
+            if tools and not _is_gemini_3_model(model):
+                logger.info(
+                    "Skipping Gemini structured output schema for model=%s because "
+                    "built-in tools with structured outputs require Gemini 3",
+                    model,
+                )
+            else:
+                config_kwargs["response_mime_type"] = "application/json"
+                config_kwargs["response_json_schema"] = _response_json_schema(response_schema)
 
-        response = self.client.models.generate_content(
+        response = await asyncio.to_thread(
+            self.client.models.generate_content,
             model=model,
             contents=contents,
             config=types.GenerateContentConfig(**config_kwargs),
@@ -75,7 +95,8 @@ class GeminiAIProvider(AIProvider):
     async def generate_image(self, prompt: str, model: str) -> ImageGeneration:
         from google.genai import types
 
-        response = self.client.models.generate_content(
+        response = await asyncio.to_thread(
+            self.client.models.generate_content,
             model=model,
             contents=[prompt],
             config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
@@ -176,7 +197,8 @@ class GeminiAIProvider(AIProvider):
             len(prompt),
             ",".join(speaker.speaker for speaker in speakers),
         )
-        response = self.client.models.generate_content(
+        response = await asyncio.to_thread(
+            self.client.models.generate_content,
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(

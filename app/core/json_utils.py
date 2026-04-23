@@ -6,6 +6,8 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from pydantic import BaseModel
+
 
 def extract_json(text: str) -> Any:
     """Parse model output that should be JSON, tolerating fenced code blocks."""
@@ -26,6 +28,11 @@ def extract_json(text: str) -> Any:
         if end <= start:
             raise
         return json.loads(cleaned[start : end + 1])
+
+
+def parse_model_json(text: str, model_type: type[BaseModel]) -> dict[str, Any]:
+    """Extract JSON from model text and validate it against a Pydantic schema."""
+    return model_type.model_validate(extract_json(text)).model_dump(mode="json")
 
 
 def to_pretty_json(data: Any) -> str:

@@ -9,8 +9,7 @@ from app.core.config import Settings
 
 JWKS_CACHE_SECONDS = 300
 SUPPORTED_JWT_ALGORITHMS = {"ES256", "RS256", "HS256"}
-_jwks_cache: dict[str, Any] | None = None
-_jwks_cache_expires_at = 0.0
+_jwks_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 async def require_admin_request(request: Request, settings: Settings) -> dict[str, Any]:
@@ -88,8 +87,6 @@ async def verify_supabase_jwt(token: str, settings: Settings) -> dict[str, Any]:
 
 
 async def _load_supabase_jwks(settings: Settings) -> dict[str, Any] | None:
-    global _jwks_cache, _jwks_cache_expires_at
-
     if settings.supabase_jwks_json:
         return json.loads(settings.supabase_jwks_json)
 
@@ -98,15 +95,23 @@ async def _load_supabase_jwks(settings: Settings) -> dict[str, Any] | None:
         return None
 
     now = time.monotonic()
-    if _jwks_cache is not None and now < _jwks_cache_expires_at:
-        return _jwks_cache
+    cached = _jwks_cache.get(jwks_url)
+    if cached and now < cached[0]:
+        return cached[1]
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        response = await client.get(jwks_url)
-        response.raise_for_status()
-        _jwks_cache = response.json()
-        _jwks_cache_expires_at = now + JWKS_CACHE_SECONDS
-        return _jwks_cache
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(jwks_url)
+            response.raise_for_status()
+            jwks = response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not load Supabase JWT signing keys",
+        ) from exc
+
+    _jwks_cache[jwks_url] = (now + JWKS_CACHE_SECONDS, jwks)
+    return jwks
 
 
 def _select_jwk(jwks: dict[str, Any], header: dict[str, Any]) -> dict[str, Any] | None:

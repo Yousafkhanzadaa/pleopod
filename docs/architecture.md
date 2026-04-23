@@ -1,6 +1,6 @@
 # Pleopod Backend Architecture
 
-Docs checked: April 19, 2026.
+Docs checked: April 24, 2026.
 
 Official docs used while designing this backend:
 
@@ -26,9 +26,12 @@ Important doc-backed decisions:
 - The legacy JWT secret is only supported as an explicit migration fallback.
 - Long media-generation work does not live inside hosted Supabase Edge Functions.
 - R2 is used for generated artifacts and published media because it is S3-compatible and avoids egress fees.
-- Gemini 3.1 Flash TTS Preview is treated as a two-speaker MVP path, chunked for longer episodes.
+- Gemini 3.1 Flash TTS Preview is treated as the default two-speaker MVP path,
+  chunked for longer episodes, with Gemini 2.5 Flash Preview TTS as a fallback.
 - Gemini 2.5 Flash Lite is used for the title orchestration step before job creation.
-- Gemini Google Search grounding and URL context are used by the research layer.
+- Gemini structured outputs are used where the configured model/tool combination supports them.
+- Gemini Google Search grounding and URL context are used by the research layer, with
+  backend schema validation after JSON extraction.
 
 ## System Shape
 

@@ -4,8 +4,9 @@ from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.agents.prompts import verification_prompt
-from app.core.json_utils import extract_json, to_pretty_json
+from app.core.json_utils import parse_model_json, to_pretty_json
 from app.models.enums import ArtifactType, JobStatus, PipelineStep
+from app.schemas.agent_outputs import VerificationReport
 
 
 class FactVerifierAgent(PipelineAgent):
@@ -21,8 +22,9 @@ class FactVerifierAgent(PipelineAgent):
         response = await context.ai.generate_text(
             prompt=verification_prompt(script, claims),
             model=context.settings.gemini_verification_model,
+            response_schema=VerificationReport,
         )
-        verification = extract_json(response.text)
+        verification = parse_model_json(response.text, VerificationReport)
         fixed_transcript = verification.get("fixed_transcript")
         if fixed_transcript:
             script["transcript"] = fixed_transcript

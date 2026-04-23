@@ -5,9 +5,10 @@ from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.agents.prompts import research_prompt
-from app.core.json_utils import extract_json, to_pretty_json
+from app.core.json_utils import parse_model_json, to_pretty_json
 from app.db.repositories import KnowledgeRepository
 from app.models.enums import ArtifactType, PipelineStep
+from app.schemas.agent_outputs import ResearchDossier
 
 
 def build_research_memory_markdown(
@@ -50,7 +51,7 @@ class ResearchAgent(PipelineAgent):
             use_google_search=True,
             urls=job.get("source_urls") or [],
         )
-        research = extract_json(response.text)
+        research = parse_model_json(response.text, ResearchDossier)
         sources = research.get("sources", [])
         if response.citations:
             known = {source.get("url") for source in sources}
