@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     ai_provider: Literal["gemini", "fake"] = "fake"
     gemini_api_key: str | None = None
+    gemini_orchestration_model: str = "gemini-2.5-flash-lite"
     gemini_research_model: str = "gemini-2.5-flash"
     gemini_script_model: str = "gemini-2.5-flash"
     gemini_verification_model: str = "gemini-2.5-flash"

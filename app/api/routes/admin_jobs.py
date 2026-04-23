@@ -5,12 +5,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import admin_dep, db_session_dep
+from app.agents.orchestration import orchestrate_generation_job
+from app.api.deps import admin_dep, db_session_dep, settings_dep
+from app.core.config import Settings
 from app.db.queue import QueueRepository
 from app.db.repositories import ArtifactRepository, JobRepository
 from app.models.enums import JobStatus, PipelineStep
+from app.providers.factory import create_ai_provider
 from app.schemas.jobs import (
-    GenerationJobCreate,
+    GenerationJobRequest,
     GenerationJobResponse,
     JobApprovalRequest,
     JobDetailResponse,
@@ -27,12 +30,14 @@ router = APIRouter(prefix="/admin/generation-jobs", tags=["admin-generation-jobs
     dependencies=[Depends(admin_dep)],
 )
 async def create_generation_job(
-    payload: GenerationJobCreate,
+    payload: GenerationJobRequest,
     session: AsyncSession = Depends(db_session_dep),
+    settings: Settings = Depends(settings_dep),
 ) -> dict:
     job_repo = JobRepository(session)
     queue_repo = QueueRepository(session)
-    job = await job_repo.create_job(payload.model_dump(mode="json"))
+    job_payload = await orchestrate_generation_job(payload, create_ai_provider(settings), settings)
+    job = await job_repo.create_job(job_payload.model_dump(mode="json"))
     await queue_repo.send(
         STEP_TO_QUEUE[PipelineStep.RESEARCH],
         {"job_id": str(job["id"]), "step": PipelineStep.RESEARCH, "attempt": 1},

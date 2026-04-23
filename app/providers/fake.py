@@ -26,6 +26,17 @@ class FakeAIProvider(AIProvider):
         response_schema: object | None = None,
     ) -> TextGeneration:
         lower = prompt.lower()
+        if "orchestration agent" in lower:
+            orchestration_data: dict[str, Any] = {
+                "topic": "AI Coding Agents in 2026",
+                "category": "Tech",
+                "audience": "curious tech listeners and software builders",
+                "target_duration_seconds": 600,
+                "language": "en",
+                "tone": "clear, smart, conversational",
+                "source_urls": [],
+            }
+            return TextGeneration(text=json.dumps(orchestration_data))
         if "research dossier" in lower:
             research_data: dict[str, Any] = {
                 "summary": "This is a local fake research dossier for a technology podcast.",

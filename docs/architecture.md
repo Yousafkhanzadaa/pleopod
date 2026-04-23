@@ -13,6 +13,7 @@ Official docs used while designing this backend:
 - Cloudflare R2 pricing: https://developers.cloudflare.com/r2/pricing/
 - Cloudflare R2 presigned URLs: https://developers.cloudflare.com/r2/api/s3/presigned-urls/
 - Gemini API speech generation: https://ai.google.dev/gemini-api/docs/speech-generation
+- Gemini structured output: https://ai.google.dev/gemini-api/docs/structured-output
 - Gemini grounding with Google Search: https://ai.google.dev/gemini-api/docs/google-search
 - Gemini URL context: https://ai.google.dev/gemini-api/docs/url-context
 - Gemini image generation: https://ai.google.dev/gemini-api/docs/image-generation
@@ -26,6 +27,7 @@ Important doc-backed decisions:
 - Long media-generation work does not live inside hosted Supabase Edge Functions.
 - R2 is used for generated artifacts and published media because it is S3-compatible and avoids egress fees.
 - Gemini 3.1 Flash TTS Preview is treated as a two-speaker MVP path, chunked for longer episodes.
+- Gemini 2.5 Flash Lite is used for the title orchestration step before job creation.
 - Gemini Google Search grounding and URL context are used by the research layer.
 
 ## System Shape
@@ -34,6 +36,8 @@ Important doc-backed decisions:
 Client/Admin
     |
 FastAPI
+    |
+Orchestration Agent
     |
 Supabase Postgres + PGMQ
     |

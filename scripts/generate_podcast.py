@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Create a short smoke-test podcast job and print the final audio URL."
     )
-    parser.add_argument("topic", help="Podcast topic to generate.")
+    parser.add_argument("title", help="Podcast title to generate.")
     parser.add_argument("--api-url", default="http://localhost:8000", help="Pleopod API base URL.")
     parser.add_argument(
         "--admin-key", default=None, help="Admin API key. Defaults to ADMIN_API_KEY."
@@ -93,7 +93,7 @@ def create_job(
 ) -> dict[str, Any]:
     desired_duration_seconds = smoke_test_duration_seconds(args.duration)
     payload = {
-        "topic": args.topic,
+        "title": args.title,
         "category": args.category,
         "audience": args.audience,
         "target_duration_seconds": backend_request_duration_seconds(desired_duration_seconds),

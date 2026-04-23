@@ -18,7 +18,7 @@ The codebase is small, direct, and pragmatic. It avoids deep frameworks and uses
 
 ## What This Backend Is
 
-At the product level, the backend generates podcast episodes from a topic prompt. It is designed for factual technology content, not free-form creative generation.
+At the product level, the backend generates podcast episodes from a user title or legacy topic prompt. It is designed for factual technology content, not free-form creative generation.
 
 The backend is responsible for:
 
@@ -95,8 +95,8 @@ This is not an agentic chat system in the runtime sense. The “agents” are fi
 
 ### Verification
 
-- `tests/`: focused unit tests for config, helpers, auth, audio config, audio generation skip logic, and worker message-skipping rules.
-- `scripts/generate_podcast.py`: local smoke-test helper that creates a job and polls for completion.
+- `tests/`: focused unit tests for config, helpers, auth, orchestration, audio config, audio generation skip logic, and worker message-skipping rules.
+- `scripts/generate_podcast.py`: local smoke-test helper that submits a title-first job request and polls for completion.
 
 ## Runtime Entry Points
 
@@ -137,7 +137,7 @@ Configuration lives in `app/core/config.py` and is implemented with `pydantic-se
 - Runtime: `ENVIRONMENT`, `LOG_LEVEL`, `API_HOST`, `API_PORT`, `ADMIN_API_KEY`
 - Database/Supabase: `DATABASE_URL`, `SUPABASE_URL`, key variants, JWT settings
 - Storage: `STORAGE_BACKEND`, local storage path, R2 account and bucket settings
-- AI: provider selection, Gemini API key, separate model names for research/script/verification/TTS/image
+- AI: provider selection, Gemini API key, and separate model names for orchestration/research/script/verification/TTS/image
 - Pipeline behavior: approval gates, retry count, queue visibility timeout, poll interval, export format, TTS chunk size
 
 ### Important Computed Settings
@@ -507,6 +507,7 @@ Route: `POST /admin/generation-jobs`
 What happens:
 
 - request payload is validated
+- a title-first orchestration step derives the normalized job payload
 - a `generation_jobs` row is created
 - the initial `research_queue` message is sent
 - the API returns `202 Accepted`
@@ -842,28 +843,30 @@ The audio layer is intentionally minimal. There is no normalization, leveling, s
 
 ## End-to-End Request Lifecycle
 
-Here is the actual lifecycle from topic to playable episode.
+Here is the actual lifecycle from title to playable episode.
 
 1. Admin client sends `POST /admin/generation-jobs`.
-2. API inserts a `generation_jobs` row.
-3. API sends a `research_queue` message.
-4. Worker reads the queue and runs `ResearchAgent`.
-5. Artifacts and knowledge rows are written.
-6. Worker enqueues `script`.
-7. Worker runs `ScriptWriterAgent`.
-8. Worker enqueues `fact_check`.
-9. Worker runs `FactVerifierAgent`.
-10. If approval is required, the job pauses.
-11. Otherwise the worker enqueues `thumbnail`.
-15. Worker runs `ThumbnailAgent`.
-16. Worker enqueues `audio_config`.
-17. Worker runs `AudioConfigAgent`.
-18. Worker enqueues `audio_generation`.
-19. Worker runs `AudioGenerationAgent`.
-20. Worker enqueues `publish`.
-21. Worker runs `PublisherAgent`.
-22. Job status becomes `completed`.
-23. Public clients fetch the episode and stream URL from the public API.
+2. API validates the request and accepts either `title` or legacy `topic`.
+3. API runs the orchestration agent with `gemini-2.5-flash-lite`.
+4. API inserts a `generation_jobs` row using the normalized payload.
+5. API sends a `research_queue` message.
+6. Worker reads the queue and runs `ResearchAgent`.
+7. Artifacts and knowledge rows are written.
+8. Worker enqueues `script`.
+9. Worker runs `ScriptWriterAgent`.
+10. Worker enqueues `fact_check`.
+11. Worker runs `FactVerifierAgent`.
+12. If approval is required, the job pauses.
+13. Otherwise the worker enqueues `thumbnail`.
+14. Worker runs `ThumbnailAgent`.
+15. Worker enqueues `audio_config`.
+16. Worker runs `AudioConfigAgent`.
+17. Worker enqueues `audio_generation`.
+18. Worker runs `AudioGenerationAgent`.
+19. Worker enqueues `publish`.
+20. Worker runs `PublisherAgent`.
+21. Job status becomes `completed`.
+22. Public clients fetch the episode and stream URL from the public API.
 
 ## How the Public App Consumes the Backend
 
@@ -978,7 +981,7 @@ The codebase is divided into sensible layers:
 - repository layer for SQL
 - provider layer for external systems
 - agent layer for business logic
-- worker layer for orchestration
+- worker layer for pipeline execution
 
 ### 3. Good Offline Story
 

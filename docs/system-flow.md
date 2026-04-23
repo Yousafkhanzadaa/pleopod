@@ -15,16 +15,18 @@ The most important design rule is this:
 
 FastAPI does not generate the podcast directly inside the HTTP request.
 
-FastAPI creates a job, stores it in Supabase, sends a small queue message, and
-then the worker processes that job step by step.
+FastAPI first orchestrates the requested title into a normalized job payload,
+stores the job in Supabase, sends a small queue message, and then the worker
+processes that job step by step.
 
 ```mermaid
 flowchart TD
-  A["Admin creates podcast job"] --> B["FastAPI writes generation_jobs row"]
-  B --> C["FastAPI sends message to research_queue"]
-  C --> D["Worker picks queue message"]
-  D --> E["Research Agent"]
-  E --> G["Script Writer Agent"]
+  A["Admin creates podcast job"] --> B["FastAPI Orchestration Agent"]
+  B --> C["FastAPI writes generation_jobs row"]
+  C --> D["FastAPI sends message to research_queue"]
+  D --> E["Worker picks queue message"]
+  E --> F["Research Agent"]
+  F --> G["Script Writer Agent"]
   G --> H["Fact Verification Agent"]
   H --> I["Thumbnail Agent"]
   I --> J["Audio Config Agent"]
@@ -48,7 +50,7 @@ Example body:
 
 ```json
 {
-  "topic": "The latest state of AI coding agents",
+  "title": "The latest state of AI coding agents",
   "category": "Tech",
   "target_duration_seconds": 600,
   "source_urls": [],
@@ -58,9 +60,18 @@ Example body:
 
 FastAPI then:
 
+- validates that the request includes a `title` or legacy `topic`
+- calls the orchestration agent to derive the normalized job payload
+- applies any explicit request overrides such as category, audience, tone, duration,
+  language, and source URLs
 - creates a row in `generation_jobs`
 - sets the job status to `queued`
 - sends a tiny message to `research_queue`
+
+The orchestration agent uses `gemini-2.5-flash-lite`. Its job is to turn a user
+title into the structured payload the rest of the pipeline expects. The row stored
+in `generation_jobs` still uses the normalized `topic` field consumed by downstream
+agents.
 
 The queue message only contains the job identity and next step:
 
@@ -108,7 +119,8 @@ This gives the system a full audit trail:
 
 ## 3. Research Agent
 
-The Research Agent gathers factual information for the selected podcast topic.
+The Research Agent gathers factual information for the normalized podcast topic
+saved after orchestration.
 
 In production, this uses Gemini with Google Search grounding and optional URL
 context. The goal is to collect recent, authentic, source-backed information

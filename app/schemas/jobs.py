@@ -2,7 +2,40 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
+
+
+class GenerationJobRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=3, max_length=300)
+    topic: str | None = Field(default=None, min_length=3, max_length=300)
+    category: str | None = Field(default=None, max_length=80)
+    audience: str | None = Field(default=None, max_length=200)
+    target_duration_seconds: int | None = Field(default=None, ge=120, le=3600)
+    language: str | None = Field(default=None, max_length=16)
+    tone: str | None = Field(default=None, max_length=200)
+    source_urls: list[HttpUrl] = Field(default_factory=list, max_length=20)
+    auto_publish: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_title_or_topic(self) -> "GenerationJobRequest":
+        if not self.title and not self.topic:
+            raise ValueError("Either title or topic is required")
+        return self
+
+    @property
+    def requested_title(self) -> str:
+        return (self.title or self.topic or "").strip()
+
+
+class OrchestratedJobPayload(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+    category: str = Field(default="Tech", max_length=80)
+    audience: str = Field(default="curious tech listeners", max_length=200)
+    target_duration_seconds: int = Field(default=600, ge=120, le=3600)
+    language: str = Field(default="en", max_length=16)
+    tone: str = Field(default="clear, smart, conversational", max_length=200)
+    source_urls: list[str] = Field(default_factory=list, max_length=20)
 
 
 class GenerationJobCreate(BaseModel):

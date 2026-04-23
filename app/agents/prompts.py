@@ -5,6 +5,29 @@ from typing import Any
 from app.core.json_utils import to_pretty_json
 
 
+def orchestration_prompt(title: str, overrides: dict[str, Any]) -> str:
+    return f"""
+You are the Orchestration Agent for Pleopod.
+
+The user has provided a podcast title. Design the payload used to create a generation job.
+
+User title:
+{title}
+
+Explicit user overrides:
+{to_pretty_json(overrides)}
+
+Rules:
+- Keep the topic tightly aligned with the user's title.
+- Infer a sensible category, audience, duration, language, and tone for a factual podcast episode.
+- Respect explicit user overrides.
+- Default language to `en` unless the title clearly implies another language.
+- Keep tone concise, natural, and suitable for spoken audio.
+- Keep source_urls empty unless explicit URLs were provided.
+- Return JSON only.
+""".strip()
+
+
 def research_prompt(job: dict[str, Any]) -> str:
     return f"""
 You are the Research Agent for Pleopod, an AI-generated Tech podcast product.

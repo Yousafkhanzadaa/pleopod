@@ -4,13 +4,14 @@ AI-agent podcast generation backend built with **FastAPI**, **Supabase Postgres/
 
 The system generates factual Tech podcast episodes through a durable pipeline:
 
-1. Research agent gathers fresh sourced information.
-2. Script agent writes a Gemini TTS-ready two-speaker script.
-3. Fact verifier checks and fixes the script line by line.
-4. Thumbnail agent creates the cover image.
-5. Audio config agent chooses speaker voices and chunking.
-6. Audio generation agent creates final audio and stores it in R2.
-7. Publisher writes episode metadata into Supabase.
+1. Orchestration agent turns a user-provided title into a normalized job payload.
+2. Research agent gathers fresh sourced information.
+3. Script agent writes a Gemini TTS-ready two-speaker script.
+4. Fact verifier checks and fixes the script line by line.
+5. Thumbnail agent creates the cover image.
+6. Audio config agent chooses speaker voices and chunking.
+7. Audio generation agent creates final audio and stores it in R2.
+8. Publisher writes episode metadata into Supabase.
 
 ## Stack
 
@@ -18,7 +19,7 @@ The system generates factual Tech podcast episodes through a durable pipeline:
 - Supabase Postgres for metadata.
 - Supabase Queues / `pgmq` for durable pipeline jobs.
 - Cloudflare R2 for audio, thumbnails, transcripts, research memory, and generated artifacts.
-- Gemini for grounded research, script generation, image generation, and Gemini 3.1 Flash TTS.
+- Gemini for title orchestration, grounded research, script generation, image generation, and TTS.
 
 ## Setup
 
@@ -61,12 +62,16 @@ curl -X POST http://localhost:8000/admin/generation-jobs \
   -H "content-type: application/json" \
   -H "x-admin-api-key: $ADMIN_API_KEY" \
   -d '{
-    "topic": "What developers need to know about AI agents in 2026",
+    "title": "What developers need to know about AI agents in 2026",
     "category": "Tech",
     "target_duration_seconds": 600,
     "auto_publish": false
   }'
 ```
+
+`title` is the preferred input. The API also accepts legacy `topic` payloads, but
+new callers should send a title and let the orchestration agent derive the final
+job settings.
 
 Fetch published episodes:
 
@@ -80,8 +85,10 @@ Run a full local generation smoke test:
 .venv/bin/python scripts/generate_podcast.py "How AI coding agents are changing software development in 2026"
 ```
 
-The script creates a job, polls until the pipeline completes or fails, and prints
-the final audio URL.
+The script sends a `title`, exercises the same orchestration path as the admin API,
+polls until the pipeline completes or fails, and prints the final audio URL. By
+default it nudges the pipeline toward a short smoke-test episode instead of a full
+length production run.
 
 ## Local Fake Mode
 

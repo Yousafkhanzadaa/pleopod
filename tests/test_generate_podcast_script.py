@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from scripts.generate_podcast import (
     BACKEND_MAX_TONE_CHARS,
     BACKEND_MIN_DURATION_SECONDS,
@@ -5,6 +7,7 @@ from scripts.generate_podcast import (
     SMOKE_TEST_MIN_DURATION_SECONDS,
     backend_request_duration_seconds,
     build_smoke_test_tone,
+    create_job,
     smoke_test_duration_seconds,
 )
 
@@ -35,3 +38,35 @@ def test_build_smoke_test_tone_respects_backend_limit() -> None:
 
     assert len(tone) <= BACKEND_MAX_TONE_CHARS
     assert "~60s" in tone
+
+
+def test_create_job_uses_title_for_orchestration_entrypoint() -> None:
+    captured: dict[str, object] = {}
+
+    class _Client:
+        def post(self, path: str, json: dict, headers: dict, timeout: int) -> SimpleNamespace:
+            captured["path"] = path
+            captured["json"] = json
+            captured["headers"] = headers
+            captured["timeout"] = timeout
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"id": "job-1"},
+            )
+
+    args = SimpleNamespace(
+        title="AI Coding Agents in 2026",
+        category="Tech",
+        audience="curious tech listeners",
+        duration=60,
+        language="en",
+        tone="clear, smart, conversational",
+        source_url=[],
+        draft=False,
+    )
+
+    create_job(_Client(), args, "admin-secret")
+
+    assert captured["path"] == "/admin/generation-jobs"
+    assert captured["json"]["title"] == "AI Coding Agents in 2026"
+    assert "topic" not in captured["json"]

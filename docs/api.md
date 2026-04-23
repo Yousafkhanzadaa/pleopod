@@ -21,11 +21,11 @@ https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
 POST /admin/generation-jobs
 ```
 
-Body:
+Preferred body:
 
 ```json
 {
-  "topic": "The latest state of AI coding agents",
+  "title": "The latest state of AI coding agents",
   "category": "Tech",
   "audience": "curious tech listeners",
   "target_duration_seconds": 600,
@@ -35,6 +35,15 @@ Body:
   "auto_publish": false
 }
 ```
+
+Notes:
+
+- `title` is the preferred user-facing input.
+- Legacy callers may still send `topic`.
+- The API runs an orchestration step with `gemini-2.5-flash-lite` to turn the
+  incoming title into the normalized job payload stored in `generation_jobs`.
+- Any explicit request fields such as `category`, `audience`, `target_duration_seconds`,
+  `language`, `tone`, or `source_urls` override the orchestration draft.
 
 ### Get Job Detail
 
