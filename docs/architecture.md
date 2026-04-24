@@ -32,6 +32,8 @@ Important doc-backed decisions:
 - Gemini structured outputs are used where the configured model/tool combination supports them.
 - Gemini Google Search grounding and URL context are used by the research layer, with
   backend schema validation after JSON extraction.
+- Remotion can render a deterministic podcast video after publish when
+  `ENABLE_VIDEO_RENDERING=true`; Gemini 2.5 Flash directs the scene plan, not the video frames.
 
 ## System Shape
 
@@ -47,6 +49,8 @@ Supabase Postgres + PGMQ
 Worker
     |
 Gemini/Search/TTS/Image APIs
+    |
+Remotion Renderer (optional video)
     |
 Cloudflare R2
 ```
@@ -82,6 +86,9 @@ Every important output is saved:
 - audio segments
 - final audio
 - episode metadata
+- optional `video_payload.json`
+- optional `video_plan.json`
+- optional final MP4 video
 
 Markdown exists for humans. JSON exists for machines.
 

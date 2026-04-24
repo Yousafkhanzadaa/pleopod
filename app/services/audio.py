@@ -30,6 +30,57 @@ def audio_from_wav_bytes(wav_data: bytes) -> AudioGeneration:
         )
 
 
+def audio_duration_seconds(audio: AudioGeneration) -> float:
+    frame_width = audio.channels * audio.sample_width
+    if frame_width <= 0 or audio.sample_rate <= 0:
+        return 0.0
+    return len(audio.pcm_data) / frame_width / audio.sample_rate
+
+
+def audio_bytes_duration_seconds(audio_data: bytes, mime_type: str | None = None) -> float | None:
+    if not audio_data:
+        return None
+
+    normalized_mime_type = (mime_type or "").lower()
+    if "wav" in normalized_mime_type or normalized_mime_type in {"", "audio/x-wav"}:
+        try:
+            return audio_duration_seconds(audio_from_wav_bytes(audio_data))
+        except (EOFError, wave.Error):
+            if normalized_mime_type:
+                return None
+
+    if not shutil.which("ffprobe"):
+        return None
+
+    suffix = ".mp3" if "mpeg" in normalized_mime_type or "mp3" in normalized_mime_type else ".audio"
+    with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+        tmp.write(audio_data)
+        tmp.flush()
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                tmp.name,
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    if result.returncode != 0:
+        return None
+    try:
+        duration = float(result.stdout.strip())
+    except ValueError:
+        return None
+    return duration if duration > 0 else None
+
+
 def stitch_pcm_to_wav(segments: list[AudioGeneration]) -> bytes:
     if not segments:
         raise ValueError("No audio segments to stitch")

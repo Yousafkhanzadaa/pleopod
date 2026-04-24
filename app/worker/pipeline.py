@@ -8,6 +8,7 @@ from app.agents.publisher import PublisherAgent
 from app.agents.research import ResearchAgent
 from app.agents.script_writer import ScriptWriterAgent
 from app.agents.thumbnail import ThumbnailAgent
+from app.agents.video_render import VideoRenderAgent
 from app.models.enums import PipelineStep
 
 STEP_TO_QUEUE: dict[PipelineStep, str] = {
@@ -18,6 +19,7 @@ STEP_TO_QUEUE: dict[PipelineStep, str] = {
     PipelineStep.AUDIO_CONFIG: "audio_config_queue",
     PipelineStep.AUDIO_GENERATION: "audio_generation_queue",
     PipelineStep.PUBLISH: "publish_queue",
+    PipelineStep.VIDEO_RENDER: "video_render_queue",
 }
 
 QUEUE_TO_STEP = {queue: step for step, queue in STEP_TO_QUEUE.items()}
@@ -30,4 +32,5 @@ AGENTS: dict[PipelineStep, PipelineAgent] = {
     PipelineStep.AUDIO_CONFIG: AudioConfigAgent(),
     PipelineStep.AUDIO_GENERATION: AudioGenerationAgent(),
     PipelineStep.PUBLISH: PublisherAgent(),
+    PipelineStep.VIDEO_RENDER: VideoRenderAgent(),
 }

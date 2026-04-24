@@ -1,0 +1,35 @@
+{
+  "name": "@pleopod/remotion-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent Remotion renderer for Pleopod podcast videos.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "plan": "tsx src/director.ts",
+    "plan:fallback": "tsx src/director.ts --fallback --props ./sample-payload.json --out ./out/fallback-video-plan.json",
+    "render": "tsx src/render.ts",
+    "render:sample": "tsx src/render.ts --props ./sample-payload.json --out ./out/sample.mp4",
+    "render:sample:planned": "tsx src/render.ts --props ./sample-payload.json --plan ./sample-video-plan.json --out ./out/sample-planned.mp4",
+    "render:sample:cli": "remotion render src/index.ts PodcastEpisode ./out/sample.mp4 --props=./sample-payload.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "@remotion/bundler": "^4.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@remotion/renderer": "^4.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0",
+    "zod": "4.3.6",
+    "zod-to-json-schema": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

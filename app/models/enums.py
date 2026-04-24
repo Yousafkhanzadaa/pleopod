@@ -30,6 +30,7 @@ class PipelineStep(StrEnum):
     AUDIO_CONFIG = "audio_config"
     AUDIO_GENERATION = "audio_generation"
     PUBLISH = "publish"
+    VIDEO_RENDER = "video_render"
 
 
 class ArtifactType(StrEnum):
@@ -47,3 +48,6 @@ class ArtifactType(StrEnum):
     AUDIO_SEGMENT = "audio_segment"
     FINAL_AUDIO = "final_audio"
     EPISODE_METADATA_JSON = "episode_metadata_json"
+    VIDEO_PAYLOAD_JSON = "video_payload_json"
+    VIDEO_PLAN_JSON = "video_plan_json"
+    VIDEO_MP4 = "video_mp4"

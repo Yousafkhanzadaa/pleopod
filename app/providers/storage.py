@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 from abc import ABC, abstractmethod
 from pathlib import Path
+from urllib.parse import urlparse
 
 import boto3
 from botocore.client import Config
@@ -70,9 +71,6 @@ class R2ObjectStorage(ObjectStorage):
     def __init__(self, settings: Settings):
         settings.validate_storage()
         self.bucket_name = settings.r2_bucket_name or ""
-        self.public_base_url = (
-            settings.r2_public_base_url.rstrip("/") if settings.r2_public_base_url else None
-        )
         self.client = boto3.client(
             "s3",
             endpoint_url=settings.r2_endpoint_url,
@@ -100,14 +98,24 @@ class R2ObjectStorage(ObjectStorage):
         return await asyncio.to_thread(response["Body"].read)
 
     async def presigned_get_url(self, key: str, expires_in: int = 3600) -> str:
-        if self.public_base_url:
-            return f"{self.public_base_url}/{key}"
         return await asyncio.to_thread(
             self.client.generate_presigned_url,
             "get_object",
             Params={"Bucket": self.bucket_name, "Key": key},
             ExpiresIn=expires_in,
         )
+
+
+def public_object_url(settings: Settings, key: str) -> str | None:
+    base = settings.r2_public_base_url
+    if not base:
+        return None
+
+    parsed = urlparse(base if "://" in base else f"https://{base}")
+    if parsed.hostname and parsed.hostname.endswith(".r2.cloudflarestorage.com"):
+        return None
+
+    return f"{base.rstrip('/')}/{key}"
 
 
 def create_storage(settings: Settings) -> ObjectStorage:

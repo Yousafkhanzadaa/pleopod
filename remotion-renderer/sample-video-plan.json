@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "directorModel": "manual-sample",
+  "durationSeconds": 12,
+  "lineTimings": [
+    {
+      "id": "line_001",
+      "speaker": "Arman",
+      "text": "Welcome back. Today we are looking at how an AI podcast pipeline should work.",
+      "startSeconds": 0,
+      "endSeconds": 3
+    },
+    {
+      "id": "line_002",
+      "speaker": "Maya",
+      "text": "The key is simple: research first, verify every important claim, then generate audio.",
+      "startSeconds": 3,
+      "endSeconds": 6
+    },
+    {
+      "id": "line_003",
+      "speaker": "Arman",
+      "text": "That pipeline gives operators something they can inspect, retry, and trust.",
+      "startSeconds": 6,
+      "endSeconds": 9
+    },
+    {
+      "id": "line_004",
+      "speaker": "Maya",
+      "text": "And once the episode exists, a video renderer can turn it into a polished visual asset for podcast apps and social platforms.",
+      "startSeconds": 9,
+      "endSeconds": 12
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene_intro",
+      "startSeconds": 0,
+      "endSeconds": 3,
+      "layout": "episode_intro",
+      "headline": "The AI Podcast Pipeline",
+      "subheadline": "A finished episode becomes a structured video.",
+      "bullets": [],
+      "diagramItems": [],
+      "sourceUrls": [],
+      "captionLineIds": ["line_001"],
+      "visualKeywords": ["workflow", "audio", "video"],
+      "emphasis": "calm"
+    },
+    {
+      "id": "scene_bullets",
+      "startSeconds": 3,
+      "endSeconds": 7,
+      "layout": "bullet_card",
+      "headline": "Research first. Audio last.",
+      "subheadline": "The visual should track the verified content.",
+      "bullets": ["Gather sources", "Build the claim bank", "Verify the script", "Generate audio"],
+      "diagramItems": [],
+      "sourceUrls": [],
+      "captionLineIds": ["line_002"],
+      "visualKeywords": ["evidence", "verification"],
+      "emphasis": "technical"
+    },
+    {
+      "id": "scene_diagram",
+      "startSeconds": 7,
+      "endSeconds": 10,
+      "layout": "diagram_card",
+      "headline": "Inspectable, retryable, trustworthy",
+      "subheadline": "Every stage leaves an artifact.",
+      "bullets": [],
+      "diagramItems": ["Transcript", "Timing", "Director Plan", "Remotion Render", "MP4 Artifact"],
+      "sourceUrls": [],
+      "captionLineIds": ["line_003"],
+      "visualKeywords": ["pipeline", "artifacts"],
+      "emphasis": "technical"
+    },
+    {
+      "id": "scene_closing",
+      "startSeconds": 10,
+      "endSeconds": 12,
+      "layout": "closing_card",
+      "headline": "Rendered by Remotion",
+      "subheadline": "Directed by Gemini. Timed to the podcast.",
+      "bullets": ["Podcast apps", "Social clips", "Video episodes"],
+      "diagramItems": [],
+      "sourceUrls": [],
+      "captionLineIds": ["line_004"],
+      "visualKeywords": ["publishing", "distribution"],
+      "emphasis": "curious"
+    }
+  ],
+  "productionNotes": [
+    "Sample plan showing how Gemini should direct Remotion layout choices."
+  ]
+}

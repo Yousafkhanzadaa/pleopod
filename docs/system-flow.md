@@ -9,7 +9,8 @@ The control plane receives requests, tracks jobs, exposes APIs, stores metadata,
 and controls permissions.
 
 The execution plane does the heavy work: research, script writing, verification,
-thumbnail generation, TTS configuration, audio generation, upload, and publishing.
+thumbnail generation, TTS configuration, audio generation, upload, publishing, and
+optional Remotion video rendering.
 
 The most important design rule is this:
 
@@ -32,8 +33,9 @@ flowchart TD
   I --> J["Audio Config Agent"]
   J --> K["Audio Generation Agent"]
   K --> L["Publisher Agent"]
-  L --> M["Supabase episode metadata"]
-  L --> N["R2 audio, thumbnail, transcript, artifacts"]
+  L --> V["Video Render Agent when enabled"]
+  V --> M["Supabase episode metadata"]
+  V --> N["R2 audio, thumbnail, transcript, video, artifacts"]
   M --> O["App fetches published episodes"]
   N --> O
 ```
@@ -98,6 +100,7 @@ The worker continuously checks Supabase queues:
 - `audio_config_queue`
 - `audio_generation_queue`
 - `publish_queue`
+- `video_render_queue`
 
 When the worker sees a message, it:
 
@@ -323,6 +326,36 @@ POST /admin/generation-jobs/{job_id}/publish
 ```
 
 then the episode becomes published.
+
+If `ENABLE_VIDEO_RENDERING=true`, publishing records the episode metadata and then
+queues `video_render_queue` instead of completing the generation job immediately.
+
+## 10. Video Render Agent
+
+The Video Render Agent turns the generated podcast into a Remotion-rendered MP4.
+
+It reads:
+
+- published episode metadata
+- verified script and transcript
+- final audio artifact
+- thumbnail artifact
+
+It writes:
+
+```text
+jobs/{job_id}/video/video_payload.json
+jobs/{job_id}/video/video_plan.json
+episodes/{episode_id}/video/final.mp4
+```
+
+The agent calls the independent `remotion-renderer/` package. If `GEMINI_API_KEY`
+is configured, Gemini 2.5 Flash directs the scene plan. If no Gemini key is present,
+the renderer uses a deterministic fallback plan for local testing.
+
+The final MP4 is stored as a `video_mp4` artifact and attached to the episode as an
+`episode_assets` row with `asset_type='video'`. The job becomes `completed` after
+this step.
 
 ## 11. App Fetch Flow
 

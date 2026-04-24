@@ -6,6 +6,7 @@ from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.core.text import slugify
 from app.db.repositories import EpisodeRepository
 from app.models.enums import ArtifactType, EpisodeStatus, JobStatus, PipelineStep
+from app.providers.storage import public_object_url
 
 
 class PublisherAgent(PipelineAgent):
@@ -29,6 +30,7 @@ class PublisherAgent(PipelineAgent):
         base_slug = slugify(script.get("slug") or script.get("title") or job["topic"])
         slug = f"{base_slug}-{job_id[:8]}"
         repo = EpisodeRepository(context.session)
+        audio_duration_seconds = duration_seconds_from_artifact(audio)
         episode = await repo.create_episode(
             {
                 "generation_job_id": job_id,
@@ -38,7 +40,7 @@ class PublisherAgent(PipelineAgent):
                 "status": status,
                 "summary": script.get("summary"),
                 "description": script.get("description"),
-                "duration_seconds": None,
+                "duration_seconds": audio_duration_seconds,
                 "language": job["language"],
                 "metadata": {
                     "job_id": job_id,
@@ -48,8 +50,8 @@ class PublisherAgent(PipelineAgent):
             }
         )
 
-        audio_public = self._public_url(context, audio["r2_key"])
-        thumb_public = self._public_url(context, thumbnail["r2_key"])
+        audio_public = public_object_url(context.settings, audio["r2_key"])
+        thumb_public = public_object_url(context.settings, thumbnail["r2_key"])
         await repo.create_asset(
             {
                 "episode_id": str(episode["id"]),
@@ -81,18 +83,29 @@ class PublisherAgent(PipelineAgent):
             job_id=job_id,
             episode_id=str(episode["id"]),
         )
+        job_metadata = {**(job.get("metadata") or {}), "episode_id": str(episode["id"])}
+        if context.settings.enable_video_rendering:
+            await context.job_repo.update_job(job_id, metadata=job_metadata)
+            return AgentResult(
+                output_artifact_id=str(metadata_artifact["id"]),
+                next_step=PipelineStep.VIDEO_RENDER,
+            )
+
         await context.job_repo.update_job(
-            job_id,
-            status=JobStatus.COMPLETED,
-            current_step=None,
-            metadata={**(job.get("metadata") or {}), "episode_id": str(episode["id"])},
+            job_id, status=JobStatus.COMPLETED, current_step=None, metadata=job_metadata
         )
         return AgentResult(
             output_artifact_id=str(metadata_artifact["id"]), next_step=None, stop_pipeline=True
         )
 
-    def _public_url(self, context: AgentContext, key: str) -> str | None:
-        base = context.settings.r2_public_base_url
-        if not base:
-            return None
-        return f"{base.rstrip('/')}/{key}"
+
+def duration_seconds_from_artifact(artifact: dict[str, Any]) -> int | None:
+    metadata = artifact.get("metadata") or {}
+    raw_duration = metadata.get("duration_seconds")
+    try:
+        duration = float(raw_duration)
+    except (TypeError, ValueError):
+        return None
+    if duration <= 0:
+        return None
+    return max(1, round(duration))

@@ -9,7 +9,13 @@ from app.agents.audio_config import build_tts_config, tts_config_needs_rebuild
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.models.enums import ArtifactType, PipelineStep
 from app.providers.ai import AudioGeneration, SpeakerVoice
-from app.services.audio import audio_from_wav_bytes, stitch_pcm_to_wav, wav_bytes, wav_to_mp3
+from app.services.audio import (
+    audio_duration_seconds,
+    audio_from_wav_bytes,
+    stitch_pcm_to_wav,
+    wav_bytes,
+    wav_to_mp3,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +101,7 @@ class AudioGenerationAgent(PipelineAgent):
             )
 
         final_wav = stitch_pcm_to_wav(audio_segments)
+        final_duration_seconds = sum(audio_duration_seconds(segment) for segment in audio_segments)
         final_data = final_wav
         mime_type = "audio/wav"
         extension = "wav"
@@ -113,7 +120,10 @@ class AudioGenerationAgent(PipelineAgent):
             ArtifactType.FINAL_AUDIO,
             mime_type,
             job_id=job_id,
-            metadata={"segment_count": len(audio_segments)},
+            metadata={
+                "segment_count": len(audio_segments),
+                "duration_seconds": round(final_duration_seconds, 3),
+            },
         )
         return AgentResult(output_artifact_id=str(artifact["id"]), next_step=PipelineStep.PUBLISH)
 

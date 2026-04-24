@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     worker_sleep_seconds: float = 1.0
     max_tts_chunk_chars: int = 1200
 
+    enable_video_rendering: bool = False
+    remotion_renderer_path: Path = Path("remotion-renderer")
+    remotion_video_director_model: str = "gemini-2.5-flash"
+    remotion_render_timeout_seconds: int = 1800
+    remotion_render_output_format: Literal["mp4"] = "mp4"
+
     @computed_field  # type: ignore[misc]
     @property
     def async_database_url(self) -> str:

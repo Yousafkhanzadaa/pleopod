@@ -90,6 +90,34 @@ polls until the pipeline completes or fails, and prints the final audio URL. By
 default it nudges the pipeline toward a short smoke-test episode instead of a full
 length production run.
 
+## Remotion Video Renderer
+
+An independent Remotion renderer lives in `remotion-renderer/`. It turns a completed
+podcast payload into a branded MP4 video without coupling Node/React rendering to the
+Python API process. Gemini 2.5 Flash can act as a Video Director Agent that writes a
+structured `video_plan.json`; Remotion still renders the whole video deterministically.
+
+```bash
+cd remotion-renderer
+npm install
+npm run plan:fallback
+npm run render:sample:planned
+npm run render:sample
+```
+
+To make the backend generate video automatically after publishing:
+
+```env
+ENABLE_VIDEO_RENDERING=true
+REMOTION_RENDERER_PATH=remotion-renderer
+REMOTION_VIDEO_DIRECTOR_MODEL=gemini-2.5-flash
+```
+
+When `GEMINI_API_KEY` is configured, the video director uses Gemini. Without it, the
+renderer falls back to a deterministic local plan so the pipeline can still be tested.
+
+See `docs/remotion-video-system.md` for the backend handoff.
+
 ## Local Fake Mode
 
 For offline development:

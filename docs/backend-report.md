@@ -406,6 +406,7 @@ Queues are implemented with `pgmq`, not Redis or a third-party broker.
 - `audio_config_queue`
 - `audio_generation_queue`
 - `publish_queue`
+- `video_render_queue`
 - `dead_letter_queue`
 
 ### Queue Message Shape
@@ -662,8 +663,9 @@ What it does:
 - creates or updates an `episodes` row
 - creates or updates `episode_assets` for audio and thumbnail
 - writes `episode_metadata_json`
-- marks the job completed
 - writes `episode_id` into job metadata
+- marks the job completed when video rendering is disabled
+- enqueues `video_render` when `ENABLE_VIDEO_RENDERING=true`
 
 Publish behavior:
 
@@ -675,6 +677,31 @@ Slug behavior:
 - base slug is derived from script slug/title/topic
 - final slug appends the first 8 chars of the job id
 - this avoids collisions across jobs
+
+### 10. Video Render Agent
+
+File: `app/agents/video_render.py`
+
+Inputs:
+
+- episode metadata artifact
+- verified script and transcript
+- final audio artifact
+- thumbnail artifact
+
+What it does:
+
+- writes `video_payload_json`
+- calls the independent `remotion-renderer` director step to write `video_plan_json`
+- calls the Remotion render step to create MP4
+- stores `video_mp4`
+- creates or updates an `episode_assets` row with `asset_type='video'`
+- marks the generation job completed
+
+The video is still rendered entirely by Remotion. Gemini 2.5 Flash only acts as a
+structured director for scene layout, timing, captions, and on-screen content. If no
+Gemini key is configured, the renderer uses a deterministic fallback plan for local
+testing.
 
 ## Prompting Strategy
 
@@ -723,6 +750,9 @@ Instead it stores them as files and records pointers in the `artifacts` table.
 - `audio_segment`
 - `final_audio`
 - `episode_metadata_json`
+- `video_payload_json`
+- `video_plan_json`
+- `video_mp4`
 
 ### Practical Impact
 
@@ -867,8 +897,10 @@ Here is the actual lifecycle from title to playable episode.
 18. Worker runs `AudioGenerationAgent`.
 19. Worker enqueues `publish`.
 20. Worker runs `PublisherAgent`.
-21. Job status becomes `completed`.
-22. Public clients fetch the episode and stream URL from the public API.
+21. If video rendering is enabled, worker enqueues `video_render`.
+22. Worker runs `VideoRenderAgent`, stores the MP4, and attaches a video asset.
+23. Job status becomes `completed`.
+24. Public clients fetch the episode, assets, and stream URL from the public API.
 
 ## How the Public App Consumes the Backend
 
@@ -885,7 +917,8 @@ The repository query orders by:
 
 ### Episode Detail
 
-`GET /episodes/{slug}` returns a published episode by slug and attaches assets.
+`GET /episodes/{slug}` returns a published episode by slug and attaches assets,
+including audio, thumbnail, and video assets when video rendering is enabled.
 
 ### Audio Access
 
@@ -944,7 +977,7 @@ PYTHONPATH=. .venv/bin/pytest -q
 
 Result:
 
-- `39 passed in 0.77s`
+- `42 passed in 1.91s`
 
 ### What The Tests Cover Well
 
@@ -956,6 +989,7 @@ Result:
 - admin job creation and operator guard behavior
 - worker stale-message skip rules
 - audio-generation short-circuit when final audio already exists
+- video render payload creation and pipeline registration
 
 ### What Is Not Covered Much
 

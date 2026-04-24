@@ -4,6 +4,8 @@ import asyncio
 import logging
 from typing import Any
 
+from sqlalchemy.exc import DBAPIError
+
 from app.agents.base import AgentContext
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
@@ -16,6 +18,14 @@ from app.providers.storage import create_storage
 from app.worker.pipeline import AGENTS, QUEUE_TO_STEP, STEP_TO_QUEUE
 
 logger = logging.getLogger(__name__)
+
+
+def active_queue_names(settings: Settings) -> tuple[str, ...]:
+    return tuple(
+        queue_name
+        for step, queue_name in STEP_TO_QUEUE.items()
+        if step != PipelineStep.VIDEO_RENDER or settings.enable_video_rendering
+    )
 
 
 def should_skip_job_message(job: dict[str, Any], step: PipelineStep) -> bool:
@@ -36,6 +46,23 @@ def should_skip_job_message(job: dict[str, Any], step: PipelineStep) -> bool:
     return normalized_current_step != step
 
 
+def is_transient_database_disconnect(exc: BaseException) -> bool:
+    if isinstance(exc, DBAPIError) and getattr(exc, "connection_invalidated", False):
+        return True
+
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "connection was closed",
+            "connection reset by peer",
+            "connectiondoesnotexisterror",
+            "server closed the connection",
+            "connection is closed",
+        )
+    )
+
+
 class PipelineWorker:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -43,15 +70,30 @@ class PipelineWorker:
         self.ai = create_ai_provider(settings)
         self.sessionmaker = get_sessionmaker()
         self.running = True
+        self.queue_names = active_queue_names(settings)
 
     async def run_forever(self) -> None:
         logger.info("Pleopod worker started")
         while self.running:
             processed = False
-            for queue_name in QUEUE_TO_STEP:
-                processed = await self._process_queue(queue_name) or processed
+            for queue_name in self.queue_names:
+                try:
+                    processed = await self._process_queue(queue_name) or processed
+                except Exception as exc:  # noqa: BLE001
+                    if not is_transient_database_disconnect(exc):
+                        raise
+                    logger.warning(
+                        "Transient database disconnect while polling queue=%s; reconnecting",
+                        queue_name,
+                        exc_info=True,
+                    )
+                    await self._refresh_database_connections()
             if not processed:
                 await asyncio.sleep(self.settings.worker_sleep_seconds)
+
+    async def _refresh_database_connections(self) -> None:
+        await dispose_engine()
+        self.sessionmaker = get_sessionmaker()
 
     async def _process_queue(self, queue_name: str) -> bool:
         async with self.sessionmaker() as session:

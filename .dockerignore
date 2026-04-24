@@ -1,0 +1,10 @@
+.git
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+local-artifacts
+remotion-renderer/node_modules
+remotion-renderer/out
+__pycache__
+*.pyc

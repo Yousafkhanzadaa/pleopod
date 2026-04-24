@@ -215,6 +215,7 @@ declare
     'audio_config_queue',
     'audio_generation_queue',
     'publish_queue',
+    'video_render_queue',
     'dead_letter_queue'
   ];
   q text;
