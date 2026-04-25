@@ -15,6 +15,10 @@ def test_parse_optional_datetime_accepts_none() -> None:
     assert parse_optional_datetime(None) is None
 
 
+def test_parse_optional_datetime_ignores_invalid_model_date() -> None:
+    assert parse_optional_datetime("2026-02-31") is None
+
+
 def test_parse_optional_datetime_rejects_unknown_type() -> None:
     with pytest.raises(TypeError):
         parse_optional_datetime(123)

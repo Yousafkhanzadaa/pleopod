@@ -77,6 +77,49 @@ JSON shape:
 """.strip()
 
 
+def research_repair_prompt(raw_response: str) -> str:
+    return f"""
+You previously returned research output that failed JSON parsing or validation.
+Repair it into valid JSON only.
+
+Rules:
+- Preserve source URLs, claims, dates, and details already present when possible.
+- Do not invent new sources, quotes, numbers, or product facts.
+- If information is missing, use empty strings, empty arrays, or null values.
+
+Return JSON with this shape:
+{{
+  "summary": "short factual dossier summary",
+  "key_points": ["point"],
+  "open_questions": ["question"],
+  "sources": [
+    {{
+      "url": "https://...",
+      "title": "source title",
+      "publisher": "publisher",
+      "author": "author or null",
+      "published_at": "ISO datetime or null",
+      "source_tier": "A or B or C",
+      "credibility_score": 0.0,
+      "notes": "why source matters"
+    }}
+  ],
+  "claims": [
+    {{
+      "claim_text": "atomic factual claim",
+      "source_urls": ["https://..."],
+      "verification_status": "supported",
+      "confidence": 0.0,
+      "notes": "context or caveat"
+    }}
+  ]
+}}
+
+Malformed output to repair:
+{raw_response}
+""".strip()
+
+
 def script_prompt(job: dict[str, Any], memory_md: str, claims: Any) -> str:
     return f"""
 You are the Podcast Script Agent for Pleopod.

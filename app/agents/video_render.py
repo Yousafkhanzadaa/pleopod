@@ -33,8 +33,7 @@ class VideoRenderAgent(PipelineAgent):
         )
         if existing_video:
             await self._attach_video_asset(context, episode_id, existing_video)
-            await self._complete_job(context, job, episode_id, existing_video["id"])
-            return AgentResult(output_artifact_id=str(existing_video["id"]), stop_pipeline=True)
+            return await self._result_after_video(context, job, episode_id, existing_video["id"])
 
         script = await context.latest_json(job_id, ArtifactType.VERIFIED_SCRIPT_JSON)
         episode_metadata = await context.latest_json(job_id, ArtifactType.EPISODE_METADATA_JSON)
@@ -86,8 +85,24 @@ class VideoRenderAgent(PipelineAgent):
             },
         )
         await self._attach_video_asset(context, episode_id, video_artifact)
-        await self._complete_job(context, job, episode_id, video_artifact["id"])
-        return AgentResult(output_artifact_id=str(video_artifact["id"]), stop_pipeline=True)
+        return await self._result_after_video(context, job, episode_id, video_artifact["id"])
+
+    async def _result_after_video(
+        self,
+        context: AgentContext,
+        job: dict[str, Any],
+        episode_id: str,
+        video_artifact_id: str,
+    ) -> AgentResult:
+        if context.settings.enable_youtube_uploading:
+            await self._record_video_metadata(context, job, episode_id, video_artifact_id)
+            return AgentResult(
+                output_artifact_id=str(video_artifact_id),
+                next_step=PipelineStep.YOUTUBE_UPLOAD,
+            )
+
+        await self._complete_job(context, job, episode_id, video_artifact_id)
+        return AgentResult(output_artifact_id=str(video_artifact_id), stop_pipeline=True)
 
     async def _run_director(
         self,
@@ -204,6 +219,22 @@ class VideoRenderAgent(PipelineAgent):
             job["id"],
             status=JobStatus.COMPLETED,
             current_step=None,
+            metadata={
+                **(job.get("metadata") or {}),
+                "episode_id": episode_id,
+                "video_artifact_id": str(video_artifact_id),
+            },
+        )
+
+    async def _record_video_metadata(
+        self,
+        context: AgentContext,
+        job: dict[str, Any],
+        episode_id: str,
+        video_artifact_id: str,
+    ) -> None:
+        await context.job_repo.update_job(
+            job["id"],
             metadata={
                 **(job.get("metadata") or {}),
                 "episode_id": episode_id,

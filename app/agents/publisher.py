@@ -84,7 +84,7 @@ class PublisherAgent(PipelineAgent):
             episode_id=str(episode["id"]),
         )
         job_metadata = {**(job.get("metadata") or {}), "episode_id": str(episode["id"])}
-        if context.settings.enable_video_rendering:
+        if context.settings.enable_video_rendering or context.settings.enable_youtube_uploading:
             await context.job_repo.update_job(job_id, metadata=job_metadata)
             return AgentResult(
                 output_artifact_id=str(metadata_artifact["id"]),

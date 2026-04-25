@@ -216,6 +216,7 @@ declare
     'audio_generation_queue',
     'publish_queue',
     'video_render_queue',
+    'youtube_upload_queue',
     'dead_letter_queue'
   ];
   q text;

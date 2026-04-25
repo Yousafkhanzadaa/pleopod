@@ -64,6 +64,17 @@ class Settings(BaseSettings):
     remotion_render_timeout_seconds: int = 1800
     remotion_render_output_format: Literal["mp4"] = "mp4"
 
+    enable_youtube_uploading: bool = False
+    youtube_uploader_path: Path = Path("youtube-uploader")
+    youtube_client_id: str | None = None
+    youtube_client_secret: str | None = None
+    youtube_refresh_token: str | None = None
+    youtube_default_privacy_status: Literal["private", "unlisted", "public"] = "private"
+    youtube_default_category_id: str = "28"
+    youtube_upload_timeout_seconds: int = 3600
+    youtube_notify_subscribers: bool = False
+    youtube_self_declared_made_for_kids: bool = False
+
     @computed_field  # type: ignore[misc]
     @property
     def async_database_url(self) -> str:

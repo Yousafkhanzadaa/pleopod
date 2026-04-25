@@ -332,7 +332,10 @@ def parse_optional_datetime(value: Any) -> datetime | None:
             return None
         if normalized.endswith("Z"):
             normalized = f"{normalized[:-1]}+00:00"
-        return datetime.fromisoformat(normalized)
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
     raise TypeError(f"Expected datetime, ISO datetime string, or None, got {type(value)!r}")
 
 

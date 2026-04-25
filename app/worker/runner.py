@@ -24,8 +24,13 @@ def active_queue_names(settings: Settings) -> tuple[str, ...]:
     return tuple(
         queue_name
         for step, queue_name in STEP_TO_QUEUE.items()
-        if step != PipelineStep.VIDEO_RENDER or settings.enable_video_rendering
+        if (step != PipelineStep.VIDEO_RENDER or should_poll_video_queue(settings))
+        and (step != PipelineStep.YOUTUBE_UPLOAD or settings.enable_youtube_uploading)
     )
+
+
+def should_poll_video_queue(settings: Settings) -> bool:
+    return settings.enable_video_rendering or settings.enable_youtube_uploading
 
 
 def should_skip_job_message(job: dict[str, Any], step: PipelineStep) -> bool:
@@ -59,6 +64,9 @@ def is_transient_database_disconnect(exc: BaseException) -> bool:
             "connectiondoesnotexisterror",
             "server closed the connection",
             "connection is closed",
+            "querycancelederror",
+            "statement timeout",
+            "canceling statement due to statement timeout",
         )
     )
 
@@ -174,8 +182,7 @@ class PipelineWorker:
             try:
                 result = await agent.run(job, context, message)
             except Exception as exc:  # noqa: BLE001
-                heartbeat_stop.set()
-                await heartbeat_task
+                await self._stop_heartbeat(heartbeat_stop, heartbeat_task, queue_name, msg_id)
                 await session.rollback()
                 await job_repo.finish_agent_run(run["id"], AgentStatus.FAILED, error=str(exc))
                 if read_ct >= self.settings.max_agent_attempts:
@@ -187,8 +194,7 @@ class PipelineWorker:
                         error=f"Attempt {read_ct} failed: {exc}",
                     )
                 raise
-            heartbeat_stop.set()
-            await heartbeat_task
+            await self._stop_heartbeat(heartbeat_stop, heartbeat_task, queue_name, msg_id)
 
             await job_repo.finish_agent_run(
                 run["id"],
@@ -209,6 +215,24 @@ class PipelineWorker:
                     },
                 )
 
+    async def _stop_heartbeat(
+        self,
+        heartbeat_stop: asyncio.Event,
+        heartbeat_task: asyncio.Task[None],
+        queue_name: str,
+        msg_id: int,
+    ) -> None:
+        heartbeat_stop.set()
+        try:
+            await heartbeat_task
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Heartbeat task failed while stopping queue=%s msg_id=%s: %s",
+                queue_name,
+                msg_id,
+                exc,
+            )
+
     async def _heartbeat_message(
         self,
         queue_name: str,
@@ -223,19 +247,30 @@ class PipelineWorker:
             except TimeoutError:
                 pass
 
-            async with self.sessionmaker() as session:
-                updated = await QueueRepository(session).set_vt(
-                    queue_name,
-                    msg_id,
-                    self.settings.queue_visibility_timeout_seconds,
-                )
-                if not updated:
-                    logger.warning(
-                        "Could not extend queue visibility timeout queue=%s msg_id=%s",
+            try:
+                async with self.sessionmaker() as session:
+                    updated = await QueueRepository(session).set_vt(
                         queue_name,
                         msg_id,
+                        self.settings.queue_visibility_timeout_seconds,
+                    )
+                    if not updated:
+                        logger.warning(
+                            "Could not extend queue visibility timeout queue=%s msg_id=%s",
+                            queue_name,
+                            msg_id,
+                        )
+                        return
+            except Exception as exc:  # noqa: BLE001
+                if is_transient_database_disconnect(exc):
+                    logger.warning(
+                        "Could not extend queue visibility timeout queue=%s msg_id=%s: %s",
+                        queue_name,
+                        msg_id,
+                        exc,
                     )
                     return
+                raise
 
     async def _fail_message(
         self,

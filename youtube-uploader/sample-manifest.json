@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "videoPath": "./sample.mp4",
+  "thumbnailPath": "./thumbnail.png",
+  "title": "Pleopod Sample Video Podcast",
+  "description": "A sample Pleopod video podcast upload manifest.",
+  "tags": ["Pleopod", "Podcast", "AI"],
+  "categoryId": "28",
+  "privacyStatus": "private",
+  "selfDeclaredMadeForKids": false,
+  "embeddable": true,
+  "notifySubscribers": false,
+  "thumbnailRequired": false,
+  "language": "en"
+}

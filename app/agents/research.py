@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
-from app.agents.prompts import research_prompt
+from app.agents.prompts import research_prompt, research_repair_prompt
 from app.core.json_utils import parse_model_json, to_pretty_json
 from app.db.repositories import KnowledgeRepository
 from app.models.enums import ArtifactType, PipelineStep
 from app.schemas.agent_outputs import ResearchDossier
+from pydantic import ValidationError
+
+logger = logging.getLogger(__name__)
 
 
 def build_research_memory_markdown(
@@ -45,13 +50,15 @@ class ResearchAgent(PipelineAgent):
     async def run(
         self, job: dict[str, Any], context: AgentContext, message: dict[str, Any]
     ) -> AgentResult:
+        job_id = str(job["id"])
         response = await context.ai.generate_text(
             prompt=research_prompt(job),
             model=context.settings.gemini_research_model,
             use_google_search=True,
             urls=job.get("source_urls") or [],
+            response_schema=ResearchDossier,
         )
-        research = parse_model_json(response.text, ResearchDossier)
+        research = await self._parse_research_response(job_id, context, response.text)
         sources = research.get("sources", [])
         if response.citations:
             known = {source.get("url") for source in sources}
@@ -74,7 +81,6 @@ class ResearchAgent(PipelineAgent):
 
         memory = build_research_memory_markdown(job, research)
         service = context.artifact_service
-        job_id = str(job["id"])
         await service.put_text(
             f"jobs/{job_id}/research/memory.md",
             memory,
@@ -107,3 +113,24 @@ class ResearchAgent(PipelineAgent):
         return AgentResult(
             output_artifact_id=str(claim_artifact["id"]), next_step=PipelineStep.SCRIPT
         )
+
+    async def _parse_research_response(
+        self,
+        job_id: str,
+        context: AgentContext,
+        response_text: str,
+    ) -> dict[str, Any]:
+        try:
+            return parse_model_json(response_text, ResearchDossier)
+        except (json.JSONDecodeError, ValidationError) as exc:
+            logger.warning(
+                "Repairing malformed research response for job %s after parse failure: %s",
+                job_id,
+                exc,
+            )
+            repaired = await context.ai.generate_text(
+                prompt=research_repair_prompt(response_text),
+                model=context.settings.gemini_research_model,
+                response_schema=ResearchDossier,
+            )
+            return parse_model_json(repaired.text, ResearchDossier)

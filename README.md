@@ -118,6 +118,31 @@ renderer falls back to a deterministic local plan so the pipeline can still be t
 
 See `docs/remotion-video-system.md` for the backend handoff.
 
+## YouTube Uploader
+
+A standalone YouTube uploader lives in `youtube-uploader/`. It consumes a JSON
+manifest plus local video/thumbnail files and uploads through the YouTube Data API
+without importing backend code.
+
+```bash
+cd youtube-uploader
+python -m youtube_uploader auth-url --redirect-uri "http://localhost:8080/oauth2/callback"
+python -m youtube_uploader upload --manifest ./sample-manifest.json --dry-run
+```
+
+To make the backend upload rendered video podcasts after Remotion:
+
+```env
+ENABLE_YOUTUBE_UPLOADING=true
+YOUTUBE_UPLOADER_PATH=youtube-uploader
+YOUTUBE_CLIENT_ID=...
+YOUTUBE_CLIENT_SECRET=...
+YOUTUBE_REFRESH_TOKEN=...
+YOUTUBE_DEFAULT_PRIVACY_STATUS=private
+```
+
+See `docs/youtube-upload-system.md` for OAuth setup and the backend handoff.
+
 ## Local Fake Mode
 
 For offline development:

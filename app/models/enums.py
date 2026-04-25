@@ -31,6 +31,7 @@ class PipelineStep(StrEnum):
     AUDIO_GENERATION = "audio_generation"
     PUBLISH = "publish"
     VIDEO_RENDER = "video_render"
+    YOUTUBE_UPLOAD = "youtube_upload"
 
 
 class ArtifactType(StrEnum):
@@ -51,3 +52,5 @@ class ArtifactType(StrEnum):
     VIDEO_PAYLOAD_JSON = "video_payload_json"
     VIDEO_PLAN_JSON = "video_plan_json"
     VIDEO_MP4 = "video_mp4"
+    YOUTUBE_UPLOAD_MANIFEST_JSON = "youtube_upload_manifest_json"
+    YOUTUBE_UPLOAD_RESULT_JSON = "youtube_upload_result_json"

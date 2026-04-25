@@ -93,6 +93,7 @@ class _Context:
             remotion_renderer_path="remotion-renderer",
             remotion_video_director_model="gemini-2.5-flash",
             remotion_render_timeout_seconds=30,
+            enable_youtube_uploading=False,
             r2_public_base_url=None,
         )
         self.storage = _Storage()
