@@ -1,61 +1,150 @@
 # Pleopod Backend
 
-AI-agent podcast generation backend built with **FastAPI**, **Supabase Postgres/Queues**, and **Cloudflare R2**.
+Pleopod is an open-source backend for generating source-backed podcast episodes
+with AI agents. It turns a title into researched notes, a two-speaker script,
+fact-checking artifacts, thumbnails, audio, optional video, and optional YouTube
+uploads through a durable queue-based pipeline.
 
-The system generates factual Tech podcast episodes through a durable pipeline:
+The project is built for local experimentation first, but the architecture is
+close to production shape: FastAPI for the control plane, Supabase Postgres and
+Queues for state, Cloudflare R2 for generated artifacts, Gemini for AI work, and
+Remotion for optional video rendering.
 
-1. Orchestration agent turns a user-provided title into a normalized job payload.
-2. Research agent gathers fresh sourced information.
-3. Script agent writes a Gemini TTS-ready two-speaker script.
-4. Fact verifier checks and fixes the script line by line.
-5. Thumbnail agent creates the cover image.
-6. Audio config agent chooses speaker voices and chunking.
-7. Audio generation agent creates final audio and stores it in R2.
-8. Publisher writes episode metadata into Supabase.
+## What It Does
 
-## Stack
+- Accepts a podcast title and turns it into a normalized generation job.
+- Researches the topic with source-aware prompts and structured claim output.
+- Writes a conversational two-speaker script for Gemini TTS.
+- Runs line-by-line verification before audio generation.
+- Generates thumbnails and final podcast audio.
+- Stores every important intermediate artifact for debugging and review.
+- Optionally renders a branded MP4 video with Remotion.
+- Optionally uploads rendered videos to YouTube through the YouTube Data API.
+- Supports fake/local mode for low-cost development without calling AI or R2.
 
-- FastAPI for API and admin endpoints.
-- Supabase Postgres for metadata.
-- Supabase Queues / `pgmq` for durable pipeline jobs.
-- Cloudflare R2 for audio, thumbnails, transcripts, research memory, and generated artifacts.
-- Gemini for title orchestration, grounded research, script generation, image generation, and TTS.
+## Architecture
 
-## Setup
+```mermaid
+flowchart TD
+  A["Admin client or script"] --> B["FastAPI API"]
+  B --> C["Orchestration Agent"]
+  C --> D["Supabase Postgres"]
+  D --> E["Supabase Queues / PGMQ"]
+  E --> F["Worker"]
+  F --> G["Research Agent"]
+  G --> H["Script Writer Agent"]
+  H --> I["Fact Verification Agent"]
+  I --> J["Thumbnail Agent"]
+  J --> K["Audio Config Agent"]
+  K --> L["Audio Generation Agent"]
+  L --> M["Publisher Agent"]
+  M --> N["Optional Remotion Video Render"]
+  N --> O["Optional YouTube Upload"]
+  F --> P["Cloudflare R2 or local storage"]
+```
+
+FastAPI does not generate podcasts inside the HTTP request. It creates a job,
+stores state, and sends a small queue message. The worker then processes durable
+pipeline steps one at a time.
+
+Pipeline steps:
+
+```text
+research -> script -> fact_check -> thumbnail -> audio_config -> audio_generation -> publish
+```
+
+Optional steps:
+
+```text
+publish -> video_render -> youtube_upload
+```
+
+## Tech Stack
+
+- **Python 3.12+**
+- **FastAPI** for API and admin endpoints
+- **SQLAlchemy async** for database access
+- **Supabase Postgres** for metadata, jobs, artifacts, and episodes
+- **Supabase Queues / PGMQ** for durable worker messages
+- **Cloudflare R2** or local filesystem storage for generated assets
+- **Google Gemini** for orchestration, research, scripts, verification, images, and TTS
+- **Remotion** for optional deterministic video rendering
+- **YouTube Data API v3** for optional video upload
+
+## Repository Layout
+
+```text
+app/
+  agents/              Pipeline agents
+  api/                 FastAPI routes and dependencies
+  core/                Config, JSON parsing, text, security, logging
+  db/                  Queue and repository layer
+  models/              Enum definitions
+  providers/           AI and storage provider implementations
+  services/            Artifact and audio helpers
+  worker/              Queue runner and pipeline registry
+docs/                  Architecture, API, video, and YouTube notes
+remotion-renderer/     Optional Node/Remotion video renderer
+scripts/               Local helper scripts
+supabase/migrations/   Database schema migrations
+tests/                 Unit and integration-style tests
+youtube-uploader/      Standalone YouTube upload CLI
+```
+
+## Prerequisites
+
+- Python 3.12 or newer
+- A Supabase project or local Supabase stack with Postgres and PGMQ support
+- Supabase CLI for applying migrations
+- Node.js and npm if you want Remotion video rendering
+- Gemini API access if you want real AI generation
+- Cloudflare R2 credentials if you want production-style object storage
+- Google Cloud OAuth credentials if you want YouTube uploads
+
+## Quick Start
+
+Clone the repo and create an environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in:
+Edit `.env` with at least:
 
-- `DATABASE_URL`
-- Supabase publishable/secret keys
-- Supabase JWKS URL or inline JWKS if self-hosted
-- R2 credentials
-- `GEMINI_API_KEY`
-- `ADMIN_API_KEY`
+```env
+DATABASE_URL=postgresql://...
+ADMIN_API_KEY=replace-with-a-long-random-secret
+AI_PROVIDER=fake
+STORAGE_BACKEND=local
+```
 
-Apply Supabase migrations:
+Install Python dependencies:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Apply database migrations to your Supabase Postgres database:
 
 ```bash
 supabase db push
 ```
 
-Run locally:
+Run the API:
 
 ```bash
-pip install -e ".[dev]"
 pleopod-api
 ```
 
-In another terminal:
+Run the worker in a second terminal:
 
 ```bash
 pleopod-worker
 ```
 
-Create a job:
+Create a generation job:
 
 ```bash
 curl -X POST http://localhost:8000/admin/generation-jobs \
@@ -64,75 +153,126 @@ curl -X POST http://localhost:8000/admin/generation-jobs \
   -d '{
     "title": "What developers need to know about AI agents in 2026",
     "category": "Tech",
-    "target_duration_seconds": 600,
+    "target_duration_seconds": 300,
     "auto_publish": false
   }'
 ```
 
-`title` is the preferred input. The API also accepts legacy `topic` payloads, but
-new callers should send a title and let the orchestration agent derive the final
-job settings.
-
-Fetch published episodes:
+Fetch public episodes:
 
 ```bash
 curl http://localhost:8000/episodes
 ```
 
-Run a full local generation smoke test:
+## Low-Cost Local Mode
 
-```bash
-.venv/bin/python scripts/generate_podcast.py "How AI coding agents are changing software development in 2026"
+For development, start with fake AI and local artifact storage:
+
+```env
+AI_PROVIDER=fake
+STORAGE_BACKEND=local
+LOCAL_STORAGE_PATH=local-artifacts
+ENABLE_VIDEO_RENDERING=false
+ENABLE_YOUTUBE_UPLOADING=false
 ```
 
-The script sends a `title`, exercises the same orchestration path as the admin API,
-polls until the pipeline completes or fails, and prints the final audio URL. By
-default it nudges the pipeline toward a short smoke-test episode instead of a full
-length production run.
+This still uses the database and queues, but avoids external AI, R2, Remotion,
+and YouTube calls. Use this mode for backend changes, tests, and debugging.
 
-## Remotion Video Renderer
+## Environment Variables
 
-An independent Remotion renderer lives in `remotion-renderer/`. It turns a completed
-podcast payload into a branded MP4 video without coupling Node/React rendering to the
-Python API process. Gemini 2.5 Flash can act as a Video Director Agent that writes a
-structured `video_plan.json`; Remotion still renders the whole video deterministically.
+Most settings are documented in `.env.example`. The most important groups are:
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Supabase Postgres connection string. Use a pooler/session-mode URL for long-running services. |
+| `ADMIN_API_KEY` | Shared secret for admin endpoints when not using Supabase admin JWTs. |
+| `SUPABASE_URL` | Supabase project URL. |
+| `SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY` | Modern Supabase API keys. |
+| `SUPABASE_JWKS_URL` / `SUPABASE_JWKS_JSON` | JWT verification configuration. |
+| `STORAGE_BACKEND` | `local` or `r2`. |
+| `R2_*` | Cloudflare R2 credentials and bucket config. |
+| `AI_PROVIDER` | `fake` or `gemini`. |
+| `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini`. |
+| `MAX_AGENT_ATTEMPTS` | Retry budget for failed queue messages. |
+| `QUEUE_VISIBILITY_TIMEOUT_SECONDS` | Visibility timeout for long-running jobs. |
+| `ENABLE_VIDEO_RENDERING` | Enables Remotion MP4 generation after publishing. |
+| `ENABLE_YOUTUBE_UPLOADING` | Enables YouTube upload after video rendering. |
+
+Keep `.env` and OAuth tokens out of git.
+
+## Cost Controls
+
+AI generation, TTS, image generation, video rendering, storage, and YouTube
+retries can cost real money. The safest development defaults are:
+
+```env
+AI_PROVIDER=fake
+STORAGE_BACKEND=local
+ENABLE_VIDEO_RENDERING=false
+ENABLE_YOUTUBE_UPLOADING=false
+MAX_AGENT_ATTEMPTS=1
+```
+
+When testing with Gemini, use short jobs:
+
+```json
+{
+  "title": "A short test episode about AI agents",
+  "target_duration_seconds": 120,
+  "auto_publish": false
+}
+```
+
+Do not repeatedly rerun the full pipeline to debug a late-stage failure. Inspect
+the failing artifact or step, fix that step, and retry from there.
+
+## Remotion Video Rendering
+
+The optional Remotion renderer lives in `remotion-renderer/`.
+
+Remotion has its own license terms. Before using Remotion in a commercial
+production setting, confirm whether your use case needs a Remotion commercial
+license.
+
+Install and test it directly:
 
 ```bash
 cd remotion-renderer
 npm install
 npm run plan:fallback
 npm run render:sample:planned
-npm run render:sample
 ```
 
-To make the backend generate video automatically after publishing:
+Enable backend video rendering:
 
 ```env
 ENABLE_VIDEO_RENDERING=true
 REMOTION_RENDERER_PATH=remotion-renderer
 REMOTION_VIDEO_DIRECTOR_MODEL=gemini-2.5-flash
+REMOTION_RENDER_TIMEOUT_SECONDS=1800
 ```
 
-When `GEMINI_API_KEY` is configured, the video director uses Gemini. Without it, the
-renderer falls back to a deterministic local plan so the pipeline can still be tested.
+Gemini can create a structured `video_plan.json`, but Remotion renders the video
+deterministically. Without `GEMINI_API_KEY`, the renderer can use a local fallback
+plan for development.
 
-See `docs/remotion-video-system.md` for the backend handoff.
+See `docs/remotion-video-system.md` and `remotion-renderer/README.md`.
 
-## YouTube Uploader
+## YouTube Uploads
 
-A standalone YouTube uploader lives in `youtube-uploader/`. It consumes a JSON
-manifest plus local video/thumbnail files and uploads through the YouTube Data API
-without importing backend code.
+The optional YouTube uploader lives in `youtube-uploader/` and is intentionally
+separate from the backend. It consumes a manifest and local media files, then
+uses the YouTube Data API v3.
 
-```bash
-cd youtube-uploader
-python -m youtube_uploader auth-url --redirect-uri "http://localhost:8080/oauth2/callback"
-python -m youtube_uploader upload --manifest ./sample-manifest.json --dry-run
-```
+The YouTube Data API does not support service accounts for normal channel
+uploads. Use OAuth user consent for the Google account that owns or manages the
+target YouTube channel.
 
-To make the backend upload rendered video podcasts after Remotion:
+Enable backend upload only after video rendering works:
 
 ```env
+ENABLE_VIDEO_RENDERING=true
 ENABLE_YOUTUBE_UPLOADING=true
 YOUTUBE_UPLOADER_PATH=youtube-uploader
 YOUTUBE_CLIENT_ID=...
@@ -141,24 +281,167 @@ YOUTUBE_REFRESH_TOKEN=...
 YOUTUBE_DEFAULT_PRIVACY_STATUS=private
 ```
 
-See `docs/youtube-upload-system.md` for OAuth setup and the backend handoff.
+OAuth checklist:
 
-## Local Fake Mode
+- Enable the YouTube Data API v3 in Google Cloud.
+- Configure an OAuth consent screen.
+- If the app is in testing mode, add the channel owner account as a test user.
+- Request the scope `https://www.googleapis.com/auth/youtube.upload`.
+- Generate the refresh token with the same client ID and secret configured in the backend.
+- Keep `YOUTUBE_DEFAULT_PRIVACY_STATUS=private` until the flow is fully verified.
 
-For offline development:
+If using OAuth Playground, enable **Use your own OAuth credentials** and add this
+authorized redirect URI to the OAuth client:
 
-```env
-AI_PROVIDER=fake
-STORAGE_BACKEND=local
+```text
+https://developers.google.com/oauthplayground
 ```
 
-This runs the pipeline without external AI or R2 calls.
+For local OAuth CLI flows, localhost redirects are supported. A local YouTube
+upload failure that says `SSL: CERTIFICATE_VERIFY_FAILED` is a local Python CA
+certificate problem, not a localhost deployment problem.
 
-## Production Notes
+See `docs/youtube-upload-system.md` and `youtube-uploader/README.md`.
 
-- Use R2 for all generated artifacts and published media.
-- Keep research/job artifacts private.
-- Publish app-facing audio via a Cloudflare custom domain or signed URLs.
-- Run API and worker as separate services.
-- Keep `REQUIRE_HUMAN_APPROVAL=true` until you trust the automated research and verification quality.
-- Use two speakers for the MVP because Gemini multi-speaker TTS currently supports up to two speakers.
+## API
+
+Admin endpoints accept either:
+
+- `x-admin-api-key: <ADMIN_API_KEY>`
+- a Supabase access token whose `app_metadata.role` is `admin`
+
+Common endpoints:
+
+```http
+POST /admin/generation-jobs
+GET  /admin/generation-jobs/{job_id}
+POST /admin/generation-jobs/{job_id}/approve-script
+POST /admin/generation-jobs/{job_id}/publish
+
+GET /episodes
+GET /episodes/{slug}
+GET /episodes/{episode_id}/stream-url
+```
+
+See `docs/api.md`.
+
+## Testing
+
+Run the test suite:
+
+```bash
+PYTHONPATH=. pytest
+```
+
+Run a focused slice:
+
+```bash
+PYTHONPATH=. pytest tests/test_worker_runner.py tests/test_youtube_upload.py
+```
+
+Run linting when `ruff` is installed:
+
+```bash
+ruff check app tests
+```
+
+## Docker
+
+Build and run API plus worker:
+
+```bash
+docker compose up --build
+```
+
+The compose file mounts `./local-artifacts` for local storage. Production
+deployments should run API and worker as separate services with managed Postgres,
+R2-compatible storage, and appropriate secret management.
+
+## Troubleshooting
+
+### `ModuleNotFoundError: No module named 'app'`
+
+Run tests with the repository root on `PYTHONPATH`:
+
+```bash
+PYTHONPATH=. pytest
+```
+
+### Supabase password breaks `DATABASE_URL`
+
+Percent-encode special characters in the password, especially `/`, `%`, `@`, `:`,
+`#`, and `?`.
+
+### Queue visibility timeout warnings
+
+Long video renders or uploads can exceed normal database or queue timing
+assumptions. Increase `QUEUE_VISIBILITY_TIMEOUT_SECONDS`, keep workers healthy,
+and avoid interrupting workers mid-step unless you are prepared for a retry.
+
+### YouTube `redirect_uri_mismatch`
+
+The redirect URI used during OAuth must be listed on the exact OAuth client that
+generated the client ID and secret. OAuth Playground normally needs:
+
+```text
+https://developers.google.com/oauthplayground
+```
+
+### YouTube `SSL: CERTIFICATE_VERIFY_FAILED`
+
+This means the local Python process cannot verify Google's HTTPS certificate.
+On macOS with python.org Python, run the Python certificate installer, or set the
+worker/uploader environment to use a valid CA bundle such as `certifi`.
+
+### Generated content sounds factual but may be wrong
+
+Keep `REQUIRE_HUMAN_APPROVAL=true` for serious use until you trust your prompts,
+models, verification thresholds, and review process.
+
+## Security Notes
+
+- Never commit `.env`, refresh tokens, Supabase secrets, R2 keys, or admin keys.
+- Treat generated research and draft scripts as private artifacts by default.
+- Use private YouTube uploads during development.
+- Use separate credentials for development and production.
+- Rotate OAuth refresh tokens and API keys if they appear in logs or screenshots.
+
+## Roadmap Ideas
+
+- Better retry controls for expensive late-stage steps.
+- Resume/retry individual pipeline stages from existing artifacts.
+- Per-job cost estimates and budget limits.
+- Stronger source quality scoring and citation UX.
+- Better YouTube OAuth helper flow for local development.
+- Dedicated video/uploader worker process.
+- OpenTelemetry traces for agent runs and queue messages.
+
+## Contributing
+
+Contributions are welcome. Good first contributions include:
+
+- clearer setup docs
+- tests around pipeline edge cases
+- local fake provider improvements
+- prompt hardening
+- queue retry behavior improvements
+- YouTube and Remotion developer-experience fixes
+
+Before opening a pull request:
+
+```bash
+PYTHONPATH=. pytest
+ruff check app tests
+```
+
+If `ruff` is not installed, install the development extras:
+
+```bash
+pip install -e ".[dev]"
+```
+
+## License
+
+No license file is included yet. Before publishing this repository as open
+source, add a license such as MIT, Apache-2.0, or AGPL-3.0 depending on how you
+want others to use and redistribute the project.
