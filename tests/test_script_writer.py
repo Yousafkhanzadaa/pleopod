@@ -67,7 +67,7 @@ class _ArtifactService:
 
 class _Context:
     def __init__(self, responses: list[dict]) -> None:
-        self.settings = SimpleNamespace(gemini_script_model="gemini-2.5-flash")
+        self.settings = SimpleNamespace(gemini_script_model="gemini-2.5-flash-lite")
         self.artifact_service = _ArtifactService()
         self._responses = list(responses)
 

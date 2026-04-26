@@ -3,6 +3,33 @@ import pytest
 from app.core.config import Settings
 
 
+def test_default_gemini_models_use_low_cost_development_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in (
+        "GEMINI_ORCHESTRATION_MODEL",
+        "GEMINI_RESEARCH_MODEL",
+        "GEMINI_SCRIPT_MODEL",
+        "GEMINI_VERIFICATION_MODEL",
+        "GEMINI_TTS_MODEL",
+        "GEMINI_TTS_FALLBACK_MODEL",
+        "GEMINI_IMAGE_MODEL",
+        "REMOTION_VIDEO_DIRECTOR_MODEL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.gemini_orchestration_model == "gemini-2.5-flash-lite"
+    assert settings.gemini_research_model == "gemini-2.5-flash-lite"
+    assert settings.gemini_script_model == "gemini-2.5-flash-lite"
+    assert settings.gemini_verification_model == "gemini-2.5-flash-lite"
+    assert settings.gemini_tts_model == "gemini-2.5-flash-preview-tts"
+    assert settings.gemini_tts_fallback_model == "gemini-2.5-flash-preview-tts"
+    assert settings.gemini_image_model == "imagen-4.0-fast-generate-001"
+    assert settings.remotion_video_director_model == "gemini-2.5-flash-lite"
+
+
 def test_malformed_database_url_with_unencoded_slash_has_clear_error() -> None:
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,

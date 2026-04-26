@@ -67,7 +67,7 @@ publish -> video_render -> youtube_upload
 - **Supabase Postgres** for metadata, jobs, artifacts, and episodes
 - **Supabase Queues / PGMQ** for durable worker messages
 - **Cloudflare R2** or local filesystem storage for generated assets
-- **Google Gemini** for orchestration, research, scripts, verification, images, and TTS
+- **Google Gemini API** for orchestration, research, scripts, verification, Imagen thumbnails, and TTS
 - **Remotion** for optional deterministic video rendering
 - **YouTube Data API v3** for optional video upload
 
@@ -249,7 +249,7 @@ Enable backend video rendering:
 ```env
 ENABLE_VIDEO_RENDERING=true
 REMOTION_RENDERER_PATH=remotion-renderer
-REMOTION_VIDEO_DIRECTOR_MODEL=gemini-2.5-flash
+REMOTION_VIDEO_DIRECTOR_MODEL=gemini-2.5-flash-lite
 REMOTION_RENDER_TIMEOUT_SECONDS=1800
 ```
 

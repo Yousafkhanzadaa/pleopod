@@ -129,7 +129,7 @@ Then enable the backend stage:
 ```env
 ENABLE_VIDEO_RENDERING=true
 REMOTION_RENDERER_PATH=remotion-renderer
-REMOTION_VIDEO_DIRECTOR_MODEL=gemini-2.5-flash
+REMOTION_VIDEO_DIRECTOR_MODEL=gemini-2.5-flash-lite
 ```
 
 If `GEMINI_API_KEY` is present, the director step uses Gemini. If no Gemini key is

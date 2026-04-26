@@ -46,14 +46,14 @@ episode, provide `audioUrl` and usually `thumbnailUrl` in the payload.
 
 ## Generate A Video Plan
 
-Gemini 2.5 Flash can direct the on-screen content by producing a validated
+Gemini 2.5 Flash-Lite can direct the on-screen content by producing a validated
 `video_plan.json`:
 
 ```bash
 GEMINI_API_KEY=... npm run plan -- \
   --props ./payloads/my-episode.json \
   --out ./payloads/my-episode.video-plan.json \
-  --model gemini-2.5-flash
+  --model gemini-2.5-flash-lite
 ```
 
 For local development without Gemini:
@@ -113,7 +113,7 @@ not code.
 ```json
 {
   "version": 1,
-  "directorModel": "gemini-2.5-flash",
+  "directorModel": "gemini-2.5-flash-lite",
   "durationSeconds": 600,
   "lineTimings": [
     {

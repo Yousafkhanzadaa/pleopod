@@ -91,7 +91,7 @@ class _Context:
             gemini_api_key=None,
             remotion_render_output_format="mp4",
             remotion_renderer_path="remotion-renderer",
-            remotion_video_director_model="gemini-2.5-flash",
+            remotion_video_director_model="gemini-2.5-flash-lite",
             remotion_render_timeout_seconds=30,
             enable_youtube_uploading=False,
             r2_public_base_url=None,

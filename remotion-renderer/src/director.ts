@@ -41,7 +41,7 @@ const parseArgs = (argv: string[]): DirectorArgs => {
   return {
     propsPath: args.get('props') ?? './sample-payload.json',
     outPath: args.get('out') ?? './sample-video-plan.json',
-    model: args.get('model') ?? 'gemini-2.5-flash',
+    model: args.get('model') ?? 'gemini-2.5-flash-lite',
     fallback: flags.has('fallback'),
   };
 };

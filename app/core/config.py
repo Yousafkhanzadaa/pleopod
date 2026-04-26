@@ -6,6 +6,10 @@ from urllib.parse import urlparse
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+LOW_COST_GEMINI_TEXT_MODEL = "gemini-2.5-flash-lite"
+LOW_COST_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
+LOW_COST_IMAGE_MODEL = "imagen-4.0-fast-generate-001"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -40,13 +44,13 @@ class Settings(BaseSettings):
 
     ai_provider: Literal["gemini", "fake"] = "fake"
     gemini_api_key: str | None = None
-    gemini_orchestration_model: str = "gemini-2.5-flash-lite"
-    gemini_research_model: str = "gemini-2.5-flash"
-    gemini_script_model: str = "gemini-2.5-flash"
-    gemini_verification_model: str = "gemini-2.5-flash"
-    gemini_tts_model: str = "gemini-2.5-flash-preview-tts"
-    gemini_tts_fallback_model: str | None = "gemini-2.5-flash-preview-tts"
-    gemini_image_model: str = "gemini-2.5-flash-image"
+    gemini_orchestration_model: str = LOW_COST_GEMINI_TEXT_MODEL
+    gemini_research_model: str = LOW_COST_GEMINI_TEXT_MODEL
+    gemini_script_model: str = LOW_COST_GEMINI_TEXT_MODEL
+    gemini_verification_model: str = LOW_COST_GEMINI_TEXT_MODEL
+    gemini_tts_model: str = LOW_COST_GEMINI_TTS_MODEL
+    gemini_tts_fallback_model: str | None = LOW_COST_GEMINI_TTS_MODEL
+    gemini_image_model: str = LOW_COST_IMAGE_MODEL
 
     default_category: str = "Tech"
     require_human_approval: bool = False
@@ -60,7 +64,7 @@ class Settings(BaseSettings):
 
     enable_video_rendering: bool = False
     remotion_renderer_path: Path = Path("remotion-renderer")
-    remotion_video_director_model: str = "gemini-2.5-flash"
+    remotion_video_director_model: str = LOW_COST_GEMINI_TEXT_MODEL
     remotion_render_timeout_seconds: int = 1800
     remotion_render_output_format: Literal["mp4"] = "mp4"
 

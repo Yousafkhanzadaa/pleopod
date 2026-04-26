@@ -26,6 +26,11 @@ def _is_gemini_3_model(model: str) -> bool:
     return normalized.startswith("gemini-3")
 
 
+def _is_imagen_model(model: str) -> bool:
+    normalized = model.removeprefix("models/").lower()
+    return normalized.startswith("imagen-")
+
+
 def _response_json_schema(response_schema: Any) -> Any:
     if hasattr(response_schema, "model_json_schema"):
         return response_schema.model_json_schema()
@@ -93,6 +98,9 @@ class GeminiAIProvider(AIProvider):
 
     @retry(wait=wait_exponential(multiplier=1, min=1, max=20), stop=stop_after_attempt(3))
     async def generate_image(self, prompt: str, model: str) -> ImageGeneration:
+        if _is_imagen_model(model):
+            return await self._generate_imagen_image(prompt, model)
+
         from google.genai import types
 
         response = await asyncio.to_thread(
@@ -137,6 +145,43 @@ class GeminiAIProvider(AIProvider):
                 f"Gemini image generation returned text instead of image: {text[:300]}"
             )
         raise RuntimeError("Gemini image generation returned no image data")
+
+    async def _generate_imagen_image(self, prompt: str, model: str) -> ImageGeneration:
+        from google.genai import types
+
+        response = await asyncio.to_thread(
+            self.client.models.generate_images,
+            model=model,
+            prompt=prompt,
+            config=types.GenerateImagesConfig(number_of_images=1),
+        )
+
+        for generated_image in getattr(response, "generated_images", None) or []:
+            image = getattr(generated_image, "image", None)
+            data = getattr(image, "image_bytes", None)
+            if data is None:
+                continue
+            if isinstance(data, str):
+                data = base64.b64decode(data)
+            if not isinstance(data, bytes):
+                continue
+            return ImageGeneration(
+                data=data,
+                mime_type=getattr(image, "mime_type", None) or "image/png",
+                prompt=prompt,
+            )
+
+        filtered_reasons = [
+            reason
+            for reason in (
+                getattr(generated_image, "rai_filtered_reason", None)
+                for generated_image in getattr(response, "generated_images", None) or []
+            )
+            if reason
+        ]
+        if filtered_reasons:
+            raise RuntimeError(f"Imagen generation returned no image: {filtered_reasons[0]}")
+        raise RuntimeError("Imagen generation returned no image data")
 
     async def generate_tts(
         self,
