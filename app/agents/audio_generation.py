@@ -35,7 +35,6 @@ class AudioGenerationAgent(PipelineAgent):
             logger.info("Final audio already exists for job %s, skipping regeneration", job_id)
             return AgentResult(
                 output_artifact_id=str(existing_final["id"]),
-                next_step=PipelineStep.PUBLISH,
             )
 
         config = await context.latest_json(job_id, ArtifactType.TTS_CONFIG_JSON)
@@ -125,7 +124,7 @@ class AudioGenerationAgent(PipelineAgent):
                 "duration_seconds": round(final_duration_seconds, 3),
             },
         )
-        return AgentResult(output_artifact_id=str(artifact["id"]), next_step=PipelineStep.PUBLISH)
+        return AgentResult(output_artifact_id=str(artifact["id"]))
 
     async def _get_completed_segment_audio(
         self,

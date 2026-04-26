@@ -86,17 +86,12 @@ class PublisherAgent(PipelineAgent):
         job_metadata = {**(job.get("metadata") or {}), "episode_id": str(episode["id"])}
         if context.settings.enable_video_rendering or context.settings.enable_youtube_uploading:
             await context.job_repo.update_job(job_id, metadata=job_metadata)
-            return AgentResult(
-                output_artifact_id=str(metadata_artifact["id"]),
-                next_step=PipelineStep.VIDEO_RENDER,
-            )
+            return AgentResult(output_artifact_id=str(metadata_artifact["id"]))
 
         await context.job_repo.update_job(
             job_id, status=JobStatus.COMPLETED, current_step=None, metadata=job_metadata
         )
-        return AgentResult(
-            output_artifact_id=str(metadata_artifact["id"]), next_step=None, stop_pipeline=True
-        )
+        return AgentResult(output_artifact_id=str(metadata_artifact["id"]), stop_pipeline=True)
 
 
 def duration_seconds_from_artifact(artifact: dict[str, Any]) -> int | None:

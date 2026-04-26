@@ -71,6 +71,13 @@ Each agent here is a durable step:
 
 That makes the system sellable, not just impressive in a demo.
 
+Agent wiring lives in `app/worker/pipeline.py` as explicit contracts. Each
+contract declares the agent name, queue, consumed artifacts, produced artifacts,
+and graph triggers. Individual agents no longer choose the next pipeline step;
+they only produce their own result or signal a real stop condition such as human
+approval or completed publishing. The worker reads the contract graph and sends
+the next queue message.
+
 ## Artifact Strategy
 
 Every important output is saved:

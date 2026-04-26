@@ -2,7 +2,7 @@ import pytest
 
 from app.agents.audio_generation import AudioGenerationAgent
 from app.agents.publisher import duration_seconds_from_artifact
-from app.models.enums import ArtifactType, PipelineStep
+from app.models.enums import ArtifactType
 
 
 class _ArtifactRepo:
@@ -26,7 +26,6 @@ async def test_audio_generation_skips_when_final_audio_exists() -> None:
     result = await agent.run({"id": "job-1"}, _Context(), {})
 
     assert result.output_artifact_id == "final-artifact-id"
-    assert result.next_step == PipelineStep.PUBLISH
 
 
 def test_publisher_duration_seconds_uses_audio_artifact_metadata() -> None:

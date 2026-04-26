@@ -15,7 +15,7 @@ from app.db.session import dispose_engine, get_sessionmaker
 from app.models.enums import AgentStatus, JobStatus, PipelineStep
 from app.providers.factory import create_ai_provider
 from app.providers.storage import create_storage
-from app.worker.pipeline import AGENTS, QUEUE_TO_STEP, STEP_TO_QUEUE
+from app.worker.pipeline import AGENTS, QUEUE_TO_STEP, STEP_TO_QUEUE, next_steps_for_result
 
 logger = logging.getLogger(__name__)
 
@@ -202,18 +202,21 @@ class PipelineWorker:
                 output_artifact_id=result.output_artifact_id,
                 usage=result.usage,
             )
-            if result.next_step and not result.stop_pipeline:
+            next_steps = next_steps_for_result(step, result, self.settings)
+            if next_steps:
+                current_step = next_steps[0] if len(next_steps) == 1 else None
                 await job_repo.update_job(
-                    job_id, status=JobStatus.QUEUED, current_step=result.next_step
+                    job_id, status=JobStatus.QUEUED, current_step=current_step
                 )
-                await queue_repo.send(
-                    STEP_TO_QUEUE[result.next_step],
-                    {
-                        "job_id": job_id,
-                        "step": result.next_step,
-                        "attempt": 1,
-                    },
-                )
+                for next_step in next_steps:
+                    await queue_repo.send(
+                        STEP_TO_QUEUE[next_step],
+                        {
+                            "job_id": job_id,
+                            "step": next_step,
+                            "attempt": 1,
+                        },
+                    )
 
     async def _stop_heartbeat(
         self,

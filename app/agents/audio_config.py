@@ -33,9 +33,7 @@ class AudioConfigAgent(PipelineAgent):
             ArtifactType.TTS_CONFIG_JSON,
             job_id=job_id,
         )
-        return AgentResult(
-            output_artifact_id=str(artifact["id"]), next_step=PipelineStep.AUDIO_GENERATION
-        )
+        return AgentResult(output_artifact_id=str(artifact["id"]))
 
 
 def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, Any]:

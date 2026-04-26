@@ -1,6 +1,12 @@
+from app.agents.base import AgentResult
 from app.core.config import Settings
-from app.models.enums import JobStatus, PipelineStep
-from app.worker.pipeline import AGENTS, STEP_TO_QUEUE
+from app.models.enums import ArtifactType, JobStatus, PipelineStep
+from app.worker.pipeline import (
+    AGENT_CONTRACTS,
+    AGENTS,
+    STEP_TO_QUEUE,
+    next_steps_for_result,
+)
 from app.worker.runner import (
     active_queue_names,
     is_transient_database_disconnect,
@@ -48,6 +54,42 @@ def test_video_render_step_is_registered() -> None:
     assert AGENTS[PipelineStep.VIDEO_RENDER].name == "video_render_agent"
     assert STEP_TO_QUEUE[PipelineStep.YOUTUBE_UPLOAD] == "youtube_upload_queue"
     assert AGENTS[PipelineStep.YOUTUBE_UPLOAD].name == "youtube_upload_agent"
+
+
+def test_agent_contracts_define_artifact_boundaries() -> None:
+    script_contract = AGENT_CONTRACTS[PipelineStep.SCRIPT]
+
+    assert script_contract.consumes == (ArtifactType.MEMORY_MD, ArtifactType.CLAIM_BANK_JSON)
+    assert script_contract.produces == (ArtifactType.SCRIPT_MD, ArtifactType.SCRIPT_JSON)
+    assert script_contract.triggers == (PipelineStep.FACT_CHECK,)
+
+
+def test_contract_router_enqueues_graph_triggers() -> None:
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert next_steps_for_result(PipelineStep.RESEARCH, AgentResult(), settings) == (
+        PipelineStep.SCRIPT,
+    )
+
+
+def test_contract_router_respects_agent_stop_signal() -> None:
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert next_steps_for_result(
+        PipelineStep.FACT_CHECK,
+        AgentResult(stop_pipeline=True),
+        settings,
+    ) == ()
+
+
+def test_contract_router_respects_video_feature_flags() -> None:
+    disabled = Settings(_env_file=None, enable_video_rendering=False)  # type: ignore[call-arg]
+    enabled = Settings(_env_file=None, enable_video_rendering=True)  # type: ignore[call-arg]
+
+    assert next_steps_for_result(PipelineStep.PUBLISH, AgentResult(), disabled) == ()
+    assert next_steps_for_result(PipelineStep.PUBLISH, AgentResult(), enabled) == (
+        PipelineStep.VIDEO_RENDER,
+    )
 
 
 def test_video_render_queue_is_not_polled_until_enabled() -> None:

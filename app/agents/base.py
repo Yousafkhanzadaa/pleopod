@@ -17,9 +17,18 @@ from app.services.artifacts import ArtifactService
 @dataclass
 class AgentResult:
     output_artifact_id: str | None = None
-    next_step: PipelineStep | None = None
     stop_pipeline: bool = False
     usage: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class AgentContract:
+    name: str
+    step: PipelineStep
+    queue: str
+    consumes: tuple[ArtifactType, ...] = ()
+    produces: tuple[ArtifactType, ...] = ()
+    triggers: tuple[PipelineStep, ...] = ()
 
 
 @dataclass

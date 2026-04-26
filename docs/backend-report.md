@@ -1084,9 +1084,12 @@ The project intentionally avoids SQLAlchemy ORM models and uses `text(...)` quer
 
 Instead of passing large documents around in-memory, the system persists each meaningful output and reloads the latest artifact for the next stage.
 
-### Enum-Driven Pipeline
+### Contract-Driven Pipeline
 
-Pipeline steps are defined as enums, then mapped to queue names and agent instances. This makes the workflow static and understandable.
+Pipeline steps are defined as enums, then connected through agent contracts.
+Each contract declares the queue name, consumed artifacts, produced artifacts,
+and graph triggers. This keeps the workflow static and understandable without
+requiring each agent to know which agent runs next.
 
 ### Pluggable Providers
 

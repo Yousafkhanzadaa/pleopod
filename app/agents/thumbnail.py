@@ -36,6 +36,4 @@ class ThumbnailAgent(PipelineAgent):
             job_id=job_id,
             metadata={"prompt": image.prompt},
         )
-        return AgentResult(
-            output_artifact_id=str(artifact["id"]), next_step=PipelineStep.AUDIO_CONFIG
-        )
+        return AgentResult(output_artifact_id=str(artifact["id"]))

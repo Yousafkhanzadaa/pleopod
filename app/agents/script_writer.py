@@ -55,9 +55,7 @@ class ScriptWriterAgent(PipelineAgent):
             ArtifactType.SCRIPT_JSON,
             job_id=job_id,
         )
-        return AgentResult(
-            output_artifact_id=str(artifact["id"]), next_step=PipelineStep.FACT_CHECK
-        )
+        return AgentResult(output_artifact_id=str(artifact["id"]))
 
     def _normalize_script(self, script: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(script)

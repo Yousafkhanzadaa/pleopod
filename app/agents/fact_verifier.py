@@ -52,7 +52,7 @@ class FactVerifierAgent(PipelineAgent):
                 current_step=None,
             )
             return AgentResult(output_artifact_id=str(artifact["id"]), stop_pipeline=True)
-        return AgentResult(output_artifact_id=str(artifact["id"]), next_step=PipelineStep.THUMBNAIL)
+        return AgentResult(output_artifact_id=str(artifact["id"]))
 
     def _report_markdown(self, verification: dict[str, Any]) -> str:
         lines = [

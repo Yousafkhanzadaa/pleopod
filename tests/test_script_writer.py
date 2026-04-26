@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.agents.script_writer import ScriptWriterAgent
-from app.models.enums import ArtifactType, PipelineStep
+from app.models.enums import ArtifactType
 
 
 def _speakers() -> list[dict]:
@@ -143,6 +143,6 @@ async def test_script_writer_repairs_invalid_script_before_failing_worker_retrie
         {},
     )
 
-    assert result.next_step == PipelineStep.FACT_CHECK
+    assert result.output_artifact_id == "json-artifact-id"
     assert len(context.ai.calls) == 2
     assert "failed backend validation" in context.ai.calls[1]

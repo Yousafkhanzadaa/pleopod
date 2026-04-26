@@ -96,10 +96,7 @@ class VideoRenderAgent(PipelineAgent):
     ) -> AgentResult:
         if context.settings.enable_youtube_uploading:
             await self._record_video_metadata(context, job, episode_id, video_artifact_id)
-            return AgentResult(
-                output_artifact_id=str(video_artifact_id),
-                next_step=PipelineStep.YOUTUBE_UPLOAD,
-            )
+            return AgentResult(output_artifact_id=str(video_artifact_id))
 
         await self._complete_job(context, job, episode_id, video_artifact_id)
         return AgentResult(output_artifact_id=str(video_artifact_id), stop_pipeline=True)
