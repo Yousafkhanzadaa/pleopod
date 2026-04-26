@@ -15,6 +15,25 @@ token:
 
 ```bash
 cd youtube-uploader
+python -m youtube_uploader auth \
+  --client-id "$YOUTUBE_CLIENT_ID" \
+  --client-secret "$YOUTUBE_CLIENT_SECRET" \
+  --out ./tokens.json
+```
+
+The command starts a temporary local callback server, opens the Google consent
+page in your browser, exchanges the returned code, and stores the token response
+with file mode `0600`. Store the `refresh_token` value securely as
+`YOUTUBE_REFRESH_TOKEN`.
+
+If a browser cannot be opened automatically, add `--no-browser` and open the
+printed URL manually. The default redirect URI is
+`http://localhost:8080/oauth2/callback`; use `--host`, `--port`, or
+`--redirect-path` if your OAuth client is configured differently.
+
+The older manual flow is still available:
+
+```bash
 python -m youtube_uploader auth-url \
   --redirect-uri "http://localhost:8080/oauth2/callback"
 
@@ -23,8 +42,6 @@ python -m youtube_uploader exchange-code \
   --redirect-uri "http://localhost:8080/oauth2/callback" \
   --out ./tokens.json
 ```
-
-Store the refresh token securely as `YOUTUBE_REFRESH_TOKEN`.
 
 ## Upload
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import mimetypes
 import os
+import secrets
 import tempfile
 import time
 from pathlib import Path
@@ -24,7 +27,19 @@ class YouTubeUploadError(RuntimeError):
     pass
 
 
-def authorization_url(client_id: str, redirect_uri: str, state: str | None = None) -> str:
+def create_pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return verifier, challenge
+
+
+def authorization_url(
+    client_id: str,
+    redirect_uri: str,
+    state: str | None = None,
+    code_challenge: str | None = None,
+) -> str:
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -36,6 +51,9 @@ def authorization_url(client_id: str, redirect_uri: str, state: str | None = Non
     }
     if state:
         params["state"] = state
+    if code_challenge:
+        params["code_challenge"] = code_challenge
+        params["code_challenge_method"] = "S256"
     return f"{AUTH_URL}?{urlencode(params)}"
 
 
@@ -45,6 +63,7 @@ def exchange_code_for_tokens(
     client_secret: str | None,
     redirect_uri: str,
     timeout_seconds: int = 60,
+    code_verifier: str | None = None,
 ) -> dict[str, Any]:
     payload = {
         "code": code,
@@ -54,6 +73,8 @@ def exchange_code_for_tokens(
     }
     if client_secret:
         payload["client_secret"] = client_secret
+    if code_verifier:
+        payload["code_verifier"] = code_verifier
     return post_form(TOKEN_URL, payload, timeout_seconds)
 
 
