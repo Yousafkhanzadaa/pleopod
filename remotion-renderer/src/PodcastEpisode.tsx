@@ -1,4 +1,3 @@
-import type {CSSProperties, ReactNode} from 'react';
 import {
   AbsoluteFill,
   Audio,
@@ -9,7 +8,7 @@ import {
   useVideoConfig,
 } from 'remotion';
 import {buildFallbackVideoPlan} from './fallback-plan';
-import {activeChapterTitle, currentDialogueLine, parseDialogue} from './dialogue';
+import {currentDialogueLine, parseDialogue} from './dialogue';
 import type {PodcastVideoProps} from './types';
 import {
   findLineAtSecond,
@@ -21,126 +20,78 @@ import {
 
 type CaptionLine = Pick<LineTiming, 'speaker' | 'text'> | ReturnType<typeof currentDialogueLine>;
 
-type Palette = {
-  background: string;
-  primary: string;
-  accent: string;
+type NewsPalette = {
+  stage: string;
+  stageAlt: string;
+  paper: string;
+  paperDim: string;
   ink: string;
   muted: string;
-  panel: string;
-  panelStrong: string;
   line: string;
-  coral: string;
-  green: string;
+  accent: string;
+  accentDark: string;
 };
 
-const baseFont =
+const sansFont =
   'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const serifFont = 'Georgia, "Times New Roman", serif';
 
 export const PodcastEpisode = (props: PodcastVideoProps) => {
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
   const currentSecond = frame / fps;
   const progress = frame / Math.max(1, durationInFrames - 1);
-  const palette = makePalette(props.brand);
-  const dialogue = parseDialogue(props.transcript);
   const plan = normalizeVideoPlan(props.videoPlan ?? buildFallbackVideoPlan(props));
-  const currentScene = findSceneAtSecond(plan, currentSecond);
-  const currentLine = findLineAtSecond(plan, currentSecond) ?? currentDialogueLine(props, currentSecond);
-  const chapter = currentScene?.headline ?? activeChapterTitle(props, currentSecond);
-  const sceneIndex = Math.max(0, plan.scenes.findIndex((scene) => scene.id === currentScene?.id));
-  const sceneProgress = sceneLocalProgress(currentScene, currentSecond);
-  const entrance = spring({frame, fps, config: {damping: 88, stiffness: 120}});
+  const scene = findSceneAtSecond(plan, currentSecond);
+  const line = findLineAtSecond(plan, currentSecond) ?? currentDialogueLine(props, currentSecond);
+  const sceneIndex = Math.max(0, plan.scenes.findIndex((item) => item.id === scene?.id));
+  const sceneProgress = sceneLocalProgress(scene, currentSecond);
+  const palette = makePalette(sceneIndex);
+  const entrance = spring({frame, fps, config: {damping: 92, stiffness: 104}});
+  const dialogue = parseDialogue(props.transcript);
   const audioUrl = props.audioUrl.trim();
 
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: palette.background,
+        background: palette.stage,
         color: palette.ink,
-        fontFamily: baseFont,
+        fontFamily: sansFont,
         overflow: 'hidden',
       }}
     >
       {audioUrl ? <Audio src={audioUrl} /> : null}
-      <Backdrop
-        palette={palette}
-        thumbnailUrl={props.thumbnailUrl}
-        progress={progress}
+      <NewsstandBackdrop palette={palette} progress={progress} sceneProgress={sceneProgress} />
+      <SurroundingPrints props={props} scene={scene} line={line} palette={palette} />
+      <FrontPage
+        props={props}
+        scene={scene}
+        line={line}
+        dialogue={dialogue}
+        sceneIndex={sceneIndex}
         sceneProgress={sceneProgress}
-      />
-      <Header
-        brandName={props.brand.name}
-        category={props.category}
-        chapter={chapter}
         progress={progress}
         currentSecond={currentSecond}
         durationSeconds={props.durationSeconds}
         palette={palette}
+        entrance={entrance}
       />
-      <main
-        style={{
-          position: 'absolute',
-          left: 86,
-          right: 86,
-          top: 130,
-          bottom: 112,
-          display: 'grid',
-          gridTemplateColumns: '118px minmax(0, 1fr) 480px',
-          gap: 34,
-          opacity: interpolate(entrance, [0, 1], [0, 1]),
-          transform: `translateY(${interpolate(entrance, [0, 1], [18, 0])}px)`,
-        }}
-      >
-        <SignalRail
-          scenes={plan.scenes}
-          activeIndex={sceneIndex}
-          progress={progress}
-          palette={palette}
-        />
-        <SceneStage
-          props={props}
-          scene={currentScene}
-          line={currentLine}
-          sceneIndex={sceneIndex}
-          sceneProgress={sceneProgress}
-          palette={palette}
-        />
-        <EpisodePoster
-          props={props}
-          scene={currentScene}
-          line={currentLine}
-          dialogueCount={plan.lineTimings.length || dialogue.length}
-          progress={progress}
-          palette={palette}
-        />
-      </main>
-      <LowerThird
-        line={currentLine}
-        fallback={props.summary || props.description || props.title}
-        speakers={props.speakers}
-        progress={progress}
-        palette={palette}
-      />
-      <ProgressRail progress={progress} palette={palette} />
     </AbsoluteFill>
   );
 };
 
-const Backdrop = ({
+const NewsstandBackdrop = ({
   palette,
-  thumbnailUrl,
   progress,
   sceneProgress,
 }: {
-  palette: Palette;
-  thumbnailUrl: string;
+  palette: NewsPalette;
   progress: number;
   sceneProgress: number;
 }) => {
-  const imageUrl = thumbnailUrl.trim();
-  const drift = interpolate(progress, [0, 1], [-80, 80]);
-  const scan = interpolate(sceneProgress, [0, 1], [-120, 120]);
+  const light = interpolate(progress, [0, 1], [-240, 280]);
+  const sweep = interpolate(sceneProgress, [0, 1], [-110, 110]);
+
   return (
     <AbsoluteFill>
       <div
@@ -148,59 +99,7 @@ const Backdrop = ({
           position: 'absolute',
           inset: 0,
           background:
-            `linear-gradient(118deg, ${palette.background} 0%, #11161a 36%, #171719 70%, #090a0c 100%)`,
-        }}
-      />
-      {imageUrl ? (
-        <Img
-          src={imageUrl}
-          style={{
-            position: 'absolute',
-            inset: '-8%',
-            width: '116%',
-            height: '116%',
-            objectFit: 'cover',
-            opacity: 0.12,
-            filter: 'blur(30px) saturate(0.9)',
-            transform: `scale(1.04) translateX(${drift * 0.18}px)`,
-          }}
-        />
-      ) : null}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundImage:
-            'linear-gradient(rgba(255,255,255,0.032) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.032) 1px, transparent 1px)',
-          backgroundSize: '72px 72px',
-          opacity: 0.62,
-          transform: `translateX(${drift * 0.1}px)`,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: -180,
-          right: -180,
-          top: 644,
-          height: 210,
-          background:
-            `linear-gradient(90deg, transparent 0%, ${palette.primary}4a 34%, ${palette.accent}54 64%, transparent 100%)`,
-          transform: `rotate(-6deg) translateX(${scan}px)`,
-          opacity: 0.48,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: -160,
-          right: -160,
-          top: 678,
-          height: 2,
-          background:
-            `linear-gradient(90deg, transparent, ${palette.primary}, ${palette.accent}, transparent)`,
-          transform: `rotate(-6deg) translateX(${-scan * 0.7}px)`,
-          opacity: 0.82,
+            `linear-gradient(126deg, ${palette.stage} 0%, ${palette.stageAlt} 52%, #181816 100%)`,
         }}
       />
       <div
@@ -208,760 +107,611 @@ const Backdrop = ({
           position: 'absolute',
           inset: 0,
           background:
-            'linear-gradient(90deg, rgba(0,0,0,0.34), transparent 18%, transparent 78%, rgba(0,0,0,0.3))',
+            'linear-gradient(rgba(255,255,255,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px)',
+          backgroundSize: '104px 104px',
+          opacity: 0.42,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: light,
+          top: -260,
+          width: 520,
+          height: 1500,
+          transform: 'rotate(23deg)',
+          background: 'rgba(255,255,255,0.2)',
+          filter: 'blur(42px)',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 202,
+          top: 156,
+          width: 1518,
+          height: 806,
+          background: 'rgba(0,0,0,0.42)',
+          filter: 'blur(30px)',
+          transform: `translateX(${sweep * 0.04}px) translateY(38px)`,
         }}
       />
     </AbsoluteFill>
   );
 };
 
-const Header = ({
-  brandName,
-  category,
-  chapter,
+const SurroundingPrints = ({
+  props,
+  scene,
+  line,
+  palette,
+}: {
+  props: PodcastVideoProps;
+  scene: VideoScene | null;
+  line: CaptionLine;
+  palette: NewsPalette;
+}) => {
+  const words = moduleItems(scene, line, props);
+
+  return (
+    <AbsoluteFill>
+      <PeripheralSheet
+        x={-84}
+        y={-72}
+        width={456}
+        height={218}
+        rotate={-1.5}
+        palette={palette}
+        title={props.category}
+        variant="photo"
+      />
+      <PeripheralSheet
+        x={408}
+        y={-62}
+        width={610}
+        height={208}
+        rotate={0.7}
+        palette={palette}
+        title={words[0] ?? props.title}
+        variant="headline"
+      />
+      <PeripheralSheet
+        x={1398}
+        y={-38}
+        width={480}
+        height={236}
+        rotate={1.1}
+        palette={palette}
+        title={line?.speaker ?? props.brand.name}
+        variant="photo"
+      />
+      <PeripheralSheet
+        x={-146}
+        y={760}
+        width={560}
+        height={258}
+        rotate={0.8}
+        palette={palette}
+        title={words[1] ?? 'Notes'}
+        variant="columns"
+      />
+      <PeripheralSheet
+        x={1278}
+        y={790}
+        width={620}
+        height={246}
+        rotate={-0.8}
+        palette={palette}
+        title={words[2] ?? 'Edition'}
+        variant="headline"
+      />
+    </AbsoluteFill>
+  );
+};
+
+const PeripheralSheet = ({
+  x,
+  y,
+  width,
+  height,
+  rotate,
+  palette,
+  title,
+  variant,
+}: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotate: number;
+  palette: NewsPalette;
+  title: string;
+  variant: 'headline' | 'photo' | 'columns';
+}) => {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: x,
+        top: y,
+        width,
+        height,
+        transform: `rotate(${rotate}deg)`,
+        background: variant === 'headline' ? palette.accentDark : palette.paper,
+        border: `10px solid ${variant === 'headline' ? '#1b1b19' : '#11110f'}`,
+        boxShadow: '0 22px 36px rgba(0,0,0,0.34)',
+        overflow: 'hidden',
+        opacity: 0.88,
+      }}
+    >
+      {variant === 'headline' ? (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              left: 36,
+              bottom: 28,
+              maxWidth: width - 90,
+              fontSize: fitFont(title, 58, 31, 18),
+              lineHeight: 0.9,
+              fontWeight: 950,
+              textTransform: 'uppercase',
+              color: palette.paper,
+            }}
+          >
+            {title}
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              right: 24,
+              top: 24,
+              width: 170,
+              height: 60,
+              border: `1px solid rgba(244,241,231,0.36)`,
+            }}
+          />
+        </>
+      ) : variant === 'photo' ? (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: '48%',
+              background:
+                'radial-gradient(circle at 52% 38%, rgba(30,30,28,0.18), transparent 33%), linear-gradient(135deg, #d7d4ca, #88887f)',
+              filter: 'grayscale(1)',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              right: 28,
+              top: 26,
+              width: '42%',
+              color: palette.ink,
+              fontSize: 12,
+              lineHeight: 1.18,
+              fontWeight: 780,
+            }}
+          >
+            {repeatCopy(title, 24)}
+          </div>
+          <Barcode palette={palette} left={width - 190} top={height - 50} width={136} />
+        </>
+      ) : (
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              left: 34,
+              top: 32,
+              right: 34,
+              fontSize: 26,
+              lineHeight: 1,
+              fontWeight: 950,
+              textTransform: 'uppercase',
+            }}
+          >
+            {title}
+          </div>
+          <MiniColumns palette={palette} left={34} top={92} width={width - 68} columns={4} />
+        </>
+      )}
+    </div>
+  );
+};
+
+const FrontPage = ({
+  props,
+  scene,
+  line,
+  dialogue,
+  sceneIndex,
+  sceneProgress,
   progress,
   currentSecond,
   durationSeconds,
   palette,
+  entrance,
 }: {
-  brandName: string;
-  category: string;
-  chapter: string | null;
+  props: PodcastVideoProps;
+  scene: VideoScene | null;
+  line: CaptionLine;
+  dialogue: ReturnType<typeof parseDialogue>;
+  sceneIndex: number;
+  sceneProgress: number;
   progress: number;
   currentSecond: number;
   durationSeconds: number;
-  palette: Palette;
+  palette: NewsPalette;
+  entrance: number;
+}) => {
+  const headline = scene?.headline || props.title;
+  const kicker = scene ? layoutLabel(scene.layout) : props.category;
+  const edition = String(sceneIndex + 1).padStart(2, '0');
+  const lift = interpolate(entrance, [0, 1], [24, 0]);
+  const rotate = interpolate(sceneProgress, [0, 1], [-0.18, 0.12]);
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: 202,
+        top: 104,
+        width: 1516,
+        height: 854,
+        background: palette.paper,
+        color: palette.ink,
+        boxShadow: '0 44px 84px rgba(0,0,0,0.46)',
+        overflow: 'hidden',
+        opacity: interpolate(entrance, [0, 1], [0, 1]),
+        transform: `translateY(${lift}px) rotate(${rotate}deg)`,
+      }}
+    >
+      <PaperGrain />
+      <FrontPageMasthead
+        props={props}
+        sceneIndex={sceneIndex}
+        currentSecond={currentSecond}
+        durationSeconds={durationSeconds}
+        palette={palette}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 52,
+          right: 52,
+          top: 132,
+          height: 2,
+          background: palette.ink,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 52,
+          right: 52,
+          top: 145,
+          height: 22,
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
+          alignItems: 'center',
+          color: palette.muted,
+          fontSize: 12,
+          fontWeight: 780,
+          textTransform: 'uppercase',
+          letterSpacing: 0,
+          borderBottom: `1px solid ${palette.line}`,
+        }}
+      >
+        <span>{props.category}</span>
+        <span>Volume {edition} / Free Edition / {formatDuration(currentSecond)}</span>
+        <span style={{textAlign: 'right'}}>{kicker}</span>
+      </div>
+      <HeroNewsBlock
+        props={props}
+        scene={scene}
+        headline={headline}
+        line={line}
+        sceneIndex={sceneIndex}
+        palette={palette}
+      />
+      <ColumnDeck
+        props={props}
+        scene={scene}
+        line={line}
+        dialogue={dialogue}
+        palette={palette}
+      />
+      <BottomRail
+        props={props}
+        scene={scene}
+        line={line}
+        progress={progress}
+        palette={palette}
+      />
+    </div>
+  );
+};
+
+const PaperGrain = () => {
+  return (
+    <AbsoluteFill>
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background:
+            'repeating-linear-gradient(0deg, rgba(20,20,18,0.025) 0, rgba(20,20,18,0.025) 1px, transparent 1px, transparent 4px)',
+          opacity: 0.6,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          boxShadow: 'inset 0 0 0 16px rgba(20,20,18,0.04)',
+        }}
+      />
+    </AbsoluteFill>
+  );
+};
+
+const FrontPageMasthead = ({
+  props,
+  sceneIndex,
+  currentSecond,
+  durationSeconds,
+  palette,
+}: {
+  props: PodcastVideoProps;
+  sceneIndex: number;
+  currentSecond: number;
+  durationSeconds: number;
+  palette: NewsPalette;
 }) => {
   return (
     <header
       style={{
         position: 'absolute',
-        left: 86,
-        right: 86,
-        top: 50,
+        left: 52,
+        right: 52,
+        top: 36,
+        height: 86,
         display: 'grid',
-        gridTemplateColumns: 'auto 1fr auto',
+        gridTemplateColumns: '176px 1fr 176px',
+        columnGap: 22,
         alignItems: 'center',
-        gap: 34,
-        textTransform: 'uppercase',
       }}
     >
-      <div style={{display: 'flex', alignItems: 'center', gap: 16}}>
-        <div
-          style={{
-            width: 42,
-            height: 42,
-            display: 'grid',
-            placeItems: 'center',
-            border: `1px solid ${palette.line}`,
-            background: palette.panelStrong,
-            fontSize: 21,
-            fontWeight: 900,
-          }}
-        >
-          {brandName.slice(0, 1)}
-        </div>
-        <div style={{fontSize: 31, fontWeight: 900, letterSpacing: 0}}>{brandName}</div>
-      </div>
+      <MastheadBox text="Real ideas are worth holding onto" palette={palette} />
       <div
         style={{
-          height: 1,
-          background: `linear-gradient(90deg, ${palette.line}, ${palette.primary}88, ${palette.line})`,
-          opacity: 0.8,
+          textAlign: 'center',
+          fontFamily: serifFont,
+          fontSize: fitFont(`${props.brand.name} Times`, 70, 44, 18),
+          lineHeight: 0.9,
+          fontWeight: 900,
+          color: palette.ink,
         }}
-      />
-      <div style={{display: 'flex', alignItems: 'center', gap: 24, color: palette.muted}}>
-        <div style={{fontSize: fitFont(`${category} ${chapter ?? ''}`, 22, 16, 54)}}>
-          {chapter ? `${category} / ${chapter}` : category}
-        </div>
-        <div style={{fontSize: 22, color: palette.ink, fontWeight: 850}}>
-          {formatDuration(currentSecond)} / {formatDuration(durationSeconds)}
-        </div>
-        <div
-          style={{
-            width: 108,
-            height: 7,
-            background: 'rgba(255,255,255,0.16)',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              width: `${progress * 100}%`,
-              height: '100%',
-              background: `linear-gradient(90deg, ${palette.primary}, ${palette.accent})`,
-            }}
-          />
-        </div>
+      >
+        The {props.brand.name} Times
       </div>
+      <MastheadBox
+        text={`Special edition ${String(sceneIndex + 1).padStart(2, '0')} / ${formatDuration(currentSecond)} of ${formatDuration(durationSeconds)}`}
+        palette={palette}
+      />
     </header>
   );
 };
 
-const SignalRail = ({
-  scenes,
-  activeIndex,
-  progress,
-  palette,
-}: {
-  scenes: VideoScene[];
-  activeIndex: number;
-  progress: number;
-  palette: Palette;
-}) => {
+const MastheadBox = ({text, palette}: {text: string; palette: NewsPalette}) => {
   return (
-    <aside
+    <div
       style={{
-        position: 'relative',
-        height: '100%',
+        height: 64,
+        border: `2px solid ${palette.line}`,
         display: 'grid',
-        gridTemplateRows: 'auto 1fr auto',
-        alignItems: 'stretch',
+        placeItems: 'center',
+        padding: '0 14px',
+        textAlign: 'center',
+        fontSize: 12,
+        lineHeight: 1.1,
+        textTransform: 'uppercase',
+        fontWeight: 850,
+        color: palette.muted,
       }}
     >
-      <div>
-        <div style={{fontSize: 18, color: palette.muted, textTransform: 'uppercase'}}>Scene</div>
-        <div style={{fontSize: 56, fontWeight: 950, lineHeight: 0.94, marginTop: 8}}>
-          {String(activeIndex + 1).padStart(2, '0')}
-        </div>
-      </div>
-      <div
-        style={{
-          position: 'relative',
-          margin: '34px 0',
-          borderLeft: `1px solid ${palette.line}`,
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            left: -2,
-            top: 0,
-            width: 3,
-            height: `${progress * 100}%`,
-            background: `linear-gradient(${palette.primary}, ${palette.accent})`,
-          }}
-        />
-        {scenes.slice(0, 8).map((scene, index) => {
-          const active = index === activeIndex;
-          return (
-            <div
-              key={scene.id}
-              style={{
-                position: 'absolute',
-                left: -8,
-                top: `${(index / Math.max(1, scenes.length - 1)) * 100}%`,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-              }}
-            >
-              <div
-                style={{
-                  width: active ? 15 : 10,
-                  height: active ? 15 : 10,
-                  background: active ? palette.accent : 'rgba(255,255,255,0.38)',
-                  border: active ? `2px solid ${palette.ink}` : 'none',
-                }}
-              />
-              {active ? (
-                <div
-                  style={{
-                    width: 72,
-                    fontSize: 14,
-                    color: palette.muted,
-                    textTransform: 'uppercase',
-                    lineHeight: 1.05,
-                  }}
-                >
-                  {layoutLabel(scene.layout)}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-      <div
-        style={{
-          fontSize: 22,
-          color: palette.muted,
-          lineHeight: 1.15,
-          writingMode: 'vertical-rl',
-          transform: 'rotate(180deg)',
-          textTransform: 'uppercase',
-          justifySelf: 'start',
-        }}
-      >
-        Evidence first audio stories
-      </div>
-    </aside>
+      {text}
+    </div>
   );
 };
 
-const SceneStage = ({
+const HeroNewsBlock = ({
   props,
   scene,
+  headline,
   line,
   sceneIndex,
-  sceneProgress,
   palette,
 }: {
   props: PodcastVideoProps;
   scene: VideoScene | null;
+  headline: string;
   line: CaptionLine;
   sceneIndex: number;
-  sceneProgress: number;
-  palette: Palette;
+  palette: NewsPalette;
 }) => {
-  const headline = scene?.headline || props.title;
-  const subheadline = scene?.subheadline || props.summary || props.description || line?.text || '';
-  const slide = interpolate(sceneProgress, [0, 1], [16, -8]);
+  const items = moduleItems(scene, line, props);
   return (
     <section
       style={{
-        position: 'relative',
-        minWidth: 0,
-        height: '100%',
-        padding: '22px 0 0',
+        position: 'absolute',
+          left: 52,
+          right: 52,
+          top: 180,
+          height: 276,
+        display: 'grid',
+        gridTemplateColumns: '1fr 434px',
+        columnGap: 28,
+        borderBottom: `2px solid ${palette.ink}`,
       }}
     >
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          width: 132,
-          height: 7,
-          background: `linear-gradient(90deg, ${palette.primary}, ${palette.accent})`,
-        }}
-      />
-      <div
-        style={{
-          color: palette.muted,
-          fontSize: 22,
-          textTransform: 'uppercase',
-          letterSpacing: 0,
-          marginTop: 34,
-        }}
-      >
-        {scene ? layoutLabel(scene.layout) : 'Episode'}
+      <div style={{minWidth: 0, overflow: 'hidden'}}>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 950,
+            textTransform: 'uppercase',
+            color: palette.accent,
+            marginBottom: 10,
+          }}
+        >
+          Extra / Scene {String(sceneIndex + 1).padStart(2, '0')}
+        </div>
+        <h1
+          style={{
+            margin: 0,
+            fontSize: headlineFont(headline),
+            lineHeight: 0.82,
+            letterSpacing: 0,
+            fontWeight: 950,
+            textTransform: 'uppercase',
+            maxWidth: 946,
+          }}
+        >
+          {headline}
+        </h1>
       </div>
-      <h1
-        style={{
-          margin: '20px 0 0',
-          maxWidth: 1040,
-          fontSize: fitFont(headline, 104, 54, 42),
-          lineHeight: 0.92,
-          letterSpacing: 0,
-          fontWeight: 950,
-          transform: `translateY(${slide}px)`,
-        }}
-      >
-        {headline}
-      </h1>
-      <p
-        style={{
-          margin: '30px 0 0',
-          maxWidth: 930,
-          fontSize: fitFont(subheadline, 35, 24, 120),
-          lineHeight: 1.18,
-          color: 'rgba(245,247,250,0.76)',
-          fontWeight: 650,
-        }}
-      >
-        {subheadline}
-      </p>
-      <SceneBody
-        props={props}
-        scene={scene}
-        line={line}
-        sceneIndex={sceneIndex}
-        sceneProgress={sceneProgress}
-        palette={palette}
-      />
+      <div style={{position: 'relative', borderLeft: `1px solid ${palette.line}`, paddingLeft: 22}}>
+        <ImagePanel props={props} headline={headline} palette={palette} />
+        <div
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 204,
+            width: 188,
+            height: 58,
+            fontSize: 12,
+            lineHeight: 1.16,
+            color: palette.ink,
+            fontWeight: 760,
+            overflow: 'hidden',
+          }}
+        >
+          {repeatCopy(items.join(' ') || props.summary || headline, 34)}
+        </div>
+      </div>
     </section>
   );
 };
 
-const SceneBody = ({
+const ImagePanel = ({
   props,
-  scene,
-  line,
-  sceneIndex,
-  sceneProgress,
+  headline,
   palette,
 }: {
   props: PodcastVideoProps;
-  scene: VideoScene | null;
-  line: CaptionLine;
-  sceneIndex: number;
-  sceneProgress: number;
-  palette: Palette;
-}) => {
-  if (!scene) {
-    return <QuoteLayout text={line?.text || props.summary || props.title} speaker={line?.speaker} palette={palette} />;
-  }
-
-  if (scene.layout === 'bullet_card') {
-    return <BulletLayout scene={scene} palette={palette} />;
-  }
-  if (scene.layout === 'diagram_card') {
-    return <DiagramLayout scene={scene} palette={palette} />;
-  }
-  if (scene.layout === 'source_card') {
-    return <SourceLayout scene={scene} palette={palette} />;
-  }
-  if (scene.layout === 'timeline') {
-    return <TimelineLayout scene={scene} props={props} palette={palette} />;
-  }
-  if (scene.layout === 'quote_card' || scene.layout === 'speaker_focus') {
-    return (
-      <QuoteLayout
-        text={scene.quote || line?.text || scene.subheadline || props.summary || props.title}
-        speaker={scene.speakerName || line?.speaker}
-        palette={palette}
-      />
-    );
-  }
-
-  return (
-    <ConceptLayout
-      keywords={scene.visualKeywords}
-      bullets={scene.bullets}
-      fallback={line?.text || props.summary || props.title}
-      sceneIndex={sceneIndex}
-      sceneProgress={sceneProgress}
-      palette={palette}
-    />
-  );
-};
-
-const ConceptLayout = ({
-  keywords,
-  bullets,
-  fallback,
-  sceneIndex,
-  sceneProgress,
-  palette,
-}: {
-  keywords: string[];
-  bullets: string[];
-  fallback: string;
-  sceneIndex: number;
-  sceneProgress: number;
-  palette: Palette;
-}) => {
-  const items = bullets.length ? bullets : keywords.length ? keywords : keyPhrases(fallback);
-  return (
-    <div
-      style={{
-        marginTop: 52,
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: 22,
-        maxWidth: 980,
-      }}
-    >
-      {items.slice(0, 4).map((item, index) => {
-        const active = index === sceneIndex % Math.max(1, items.length);
-        return (
-          <div
-            key={item}
-            style={{
-              borderTop: `1px solid ${active ? palette.accent : palette.line}`,
-              padding: '20px 0 0',
-              minHeight: 112,
-              opacity: active ? 1 : 0.72,
-              transform: `translateY(${active ? interpolate(sceneProgress, [0, 1], [10, 0]) : 0}px)`,
-            }}
-          >
-            <div style={{fontSize: 18, color: palette.muted}}>0{index + 1}</div>
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: fitFont(item, 32, 22, 42),
-                lineHeight: 1.08,
-                fontWeight: 850,
-              }}
-            >
-              {item}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-const BulletLayout = ({scene, palette}: {scene: VideoScene; palette: Palette}) => {
-  const items = (scene.bullets.length ? scene.bullets : scene.diagramItems).slice(0, 5);
-  return (
-    <div style={{marginTop: 48, display: 'grid', gap: 18, maxWidth: 980}}>
-      {items.map((item, index) => (
-        <div
-          key={item}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '74px 1fr',
-            gap: 22,
-            alignItems: 'center',
-            padding: '17px 0',
-            borderBottom: `1px solid ${palette.line}`,
-          }}
-        >
-          <div
-            style={{
-              width: 54,
-              height: 54,
-              display: 'grid',
-              placeItems: 'center',
-              background: index === 0 ? palette.accent : palette.panelStrong,
-              color: index === 0 ? '#17120a' : palette.ink,
-              fontSize: 22,
-              fontWeight: 950,
-            }}
-          >
-            {index + 1}
-          </div>
-          <div
-            style={{
-              fontSize: fitFont(item, 40, 25, 70),
-              lineHeight: 1.05,
-              fontWeight: 850,
-            }}
-          >
-            {item}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const DiagramLayout = ({scene, palette}: {scene: VideoScene; palette: Palette}) => {
-  const items = (scene.diagramItems.length ? scene.diagramItems : scene.bullets).slice(0, 5);
-  return (
-    <div
-      style={{
-        marginTop: 58,
-        position: 'relative',
-        height: 230,
-        maxWidth: 1020,
-      }}
-    >
-      <div
-        style={{
-          position: 'absolute',
-          left: 34,
-          right: 34,
-          top: 86,
-          height: 2,
-          background: `linear-gradient(90deg, ${palette.primary}, ${palette.accent})`,
-        }}
-      />
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${Math.max(1, items.length)}, 1fr)`,
-          gap: 18,
-        }}
-      >
-        {items.map((item, index) => (
-          <div key={item} style={{position: 'relative', minWidth: 0}}>
-            <div
-              style={{
-                width: 74,
-                height: 74,
-                display: 'grid',
-                placeItems: 'center',
-                background: index === 0 ? palette.primary : palette.panelStrong,
-                color: index === 0 ? '#061114' : palette.ink,
-                border: `1px solid ${index === 0 ? palette.primary : palette.line}`,
-                fontSize: 24,
-                fontWeight: 950,
-              }}
-            >
-              {String(index + 1).padStart(2, '0')}
-            </div>
-            <div
-              style={{
-                marginTop: 28,
-                fontSize: fitFont(item, 27, 19, 34),
-                lineHeight: 1.08,
-                fontWeight: 850,
-              }}
-            >
-              {item}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const SourceLayout = ({scene, palette}: {scene: VideoScene; palette: Palette}) => {
-  const sources = (scene.sourceUrls.length ? scene.sourceUrls : ['Verified claim bank']).slice(0, 4);
-  return (
-    <div style={{marginTop: 48, display: 'grid', gap: 16, maxWidth: 980}}>
-      {sources.map((source, index) => (
-        <div
-          key={source}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '88px 1fr',
-            gap: 22,
-            alignItems: 'baseline',
-            padding: '18px 0',
-            borderBottom: `1px solid ${palette.line}`,
-          }}
-        >
-          <div style={{fontSize: 18, color: index === 0 ? palette.accent : palette.muted}}>
-            SRC {index + 1}
-          </div>
-          <div
-            style={{
-              fontSize: fitFont(source, 31, 20, 82),
-              lineHeight: 1.12,
-              fontWeight: 760,
-              overflowWrap: 'anywhere',
-            }}
-          >
-            {source}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const TimelineLayout = ({
-  scene,
-  props,
-  palette,
-}: {
-  scene: VideoScene;
-  props: PodcastVideoProps;
-  palette: Palette;
-}) => {
-  const items = props.chapters.length
-    ? props.chapters.map((chapter) => chapter.title)
-    : scene.diagramItems.length
-      ? scene.diagramItems
-      : scene.bullets;
-  return (
-    <div style={{marginTop: 48, display: 'grid', gap: 12, maxWidth: 920}}>
-      {items.slice(0, 5).map((item, index) => (
-        <div
-          key={item}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '90px 1fr',
-            gap: 24,
-            alignItems: 'center',
-            minHeight: 62,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 18,
-              color: palette.background,
-              background: index === 0 ? palette.accent : 'rgba(255,255,255,0.74)',
-              padding: '8px 10px',
-              fontWeight: 900,
-              textAlign: 'center',
-            }}
-          >
-            PART {index + 1}
-          </div>
-          <div
-            style={{
-              fontSize: fitFont(item, 38, 24, 54),
-              fontWeight: 850,
-              borderBottom: `1px solid ${palette.line}`,
-              paddingBottom: 14,
-            }}
-          >
-            {item}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const QuoteLayout = ({
-  text,
-  speaker,
-  palette,
-}: {
-  text: string;
-  speaker?: string;
-  palette: Palette;
-}) => {
-  return (
-    <div style={{marginTop: 58, maxWidth: 1010}}>
-      <div
-        style={{
-          fontSize: fitFont(text, 58, 34, 118),
-          lineHeight: 1.04,
-          fontWeight: 900,
-          color: 'rgba(255,255,255,0.92)',
-        }}
-      >
-        {text}
-      </div>
-      {speaker ? (
-        <div
-          style={{
-            marginTop: 28,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 14,
-            color: palette.muted,
-            fontSize: 22,
-            textTransform: 'uppercase',
-          }}
-        >
-          <span
-            style={{
-              width: 42,
-              height: 5,
-              background: `linear-gradient(90deg, ${palette.primary}, ${palette.accent})`,
-            }}
-          />
-          {speaker}
-        </div>
-      ) : null}
-    </div>
-  );
-};
-
-const EpisodePoster = ({
-  props,
-  scene,
-  line,
-  dialogueCount,
-  progress,
-  palette,
-}: {
-  props: PodcastVideoProps;
-  scene: VideoScene | null;
-  line: CaptionLine;
-  dialogueCount: number;
-  progress: number;
-  palette: Palette;
+  headline: string;
+  palette: NewsPalette;
 }) => {
   const thumbnailUrl = props.thumbnailUrl.trim();
-  const keywords = scene?.visualKeywords.length ? scene.visualKeywords : [props.category, props.language];
   return (
-    <aside
+    <div
       style={{
         position: 'relative',
-        minWidth: 0,
-        display: 'grid',
-        gridTemplateRows: '480px auto 1fr',
-        gap: 28,
+        width: 410,
+        height: 190,
+        overflow: 'hidden',
+        background: palette.paperDim,
+        border: `1px solid ${palette.line}`,
       }}
     >
-      <div
-        style={{
-          position: 'relative',
-          overflow: 'hidden',
-          border: `1px solid ${palette.line}`,
-          background: palette.panelStrong,
-        }}
-      >
-        <FallbackPoster title={props.title} palette={palette} />
-        {thumbnailUrl ? (
-          <Img
-            src={thumbnailUrl}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-            }}
-          />
-        ) : null}
-        <div
+      {thumbnailUrl ? (
+        <Img
+          src={thumbnailUrl}
           style={{
             position: 'absolute',
             inset: 0,
-            background: 'linear-gradient(180deg, transparent 42%, rgba(0,0,0,0.76) 100%)',
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            filter: 'grayscale(1) contrast(1.15)',
           }}
         />
-        <div
-          style={{
-            position: 'absolute',
-            left: 28,
-            right: 28,
-            bottom: 28,
-          }}
-        >
-          <div
-            style={{
-              color: palette.muted,
-              fontSize: 18,
-              textTransform: 'uppercase',
-              marginBottom: 10,
-            }}
-          >
-            Episode cover
-          </div>
-          <div
-            style={{
-              fontSize: fitFont(props.title, 36, 24, 48),
-              lineHeight: 1,
-              fontWeight: 950,
-            }}
-          >
-            {props.title}
-          </div>
-        </div>
-      </div>
-      <SpeakerStack speakers={props.speakers} activeSpeaker={line?.speaker} palette={palette} />
+      ) : (
+        <IllustratedNewsPhoto title={headline} palette={palette} />
+      )}
       <div
         style={{
-          display: 'grid',
-          alignContent: 'end',
-          gap: 18,
-          minHeight: 0,
+          position: 'absolute',
+          left: 12,
+          top: 10,
+          background: palette.paper,
+          border: `1px solid ${palette.ink}`,
+          padding: '4px 7px',
+          fontSize: 10,
+          fontWeight: 950,
+          textTransform: 'uppercase',
         }}
       >
-        <KeywordStack keywords={keywords} palette={palette} />
-        <Waveform progress={progress} count={dialogueCount || 28} palette={palette} />
+        CP-0{headline.length % 8}
       </div>
-    </aside>
+    </div>
   );
 };
 
-const FallbackPoster = ({title, palette}: {title: string; palette: Palette}) => {
+const IllustratedNewsPhoto = ({title, palette}: {title: string; palette: NewsPalette}) => {
   return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        display: 'grid',
-        placeItems: 'center',
-        padding: 46,
-        background:
-          `linear-gradient(140deg, ${palette.primary}30, ${palette.green}28 42%, ${palette.accent}30)`,
-      }}
-    >
+    <div style={{position: 'absolute', inset: 0, background: '#d9d6cc'}}>
       <div
         style={{
-          width: '78%',
-          height: '78%',
-          border: '2px solid rgba(255,255,255,0.28)',
-          display: 'grid',
-          placeItems: 'center',
-          padding: 34,
-          textAlign: 'center',
-          fontSize: fitFont(title, 46, 28, 38),
-          lineHeight: 1,
+          position: 'absolute',
+          left: 22,
+          top: 22,
+          width: 142,
+          height: 142,
+          borderRadius: 999,
+          background: '#b9b8ae',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          right: 34,
+          top: 24,
+          width: 120,
+          height: 120,
+          borderRadius: 999,
+          background: `${palette.accent}55`,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 68,
+          bottom: 0,
+          width: 126,
+          height: 168,
+          borderRadius: '66px 66px 0 0',
+          background: '#22221f',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 222,
+          top: 44,
+          width: 138,
+          fontSize: fitFont(title, 24, 16, 20),
+          lineHeight: 0.94,
           fontWeight: 950,
+          textTransform: 'uppercase',
+          color: '#22221f',
         }}
       >
         {title}
@@ -970,247 +720,293 @@ const FallbackPoster = ({title, palette}: {title: string; palette: Palette}) => 
   );
 };
 
-const SpeakerStack = ({
-  speakers,
-  activeSpeaker,
+const ColumnDeck = ({
+  props,
+  scene,
+  line,
+  dialogue,
   palette,
 }: {
-  speakers: PodcastVideoProps['speakers'];
-  activeSpeaker?: string;
-  palette: Palette;
+  props: PodcastVideoProps;
+  scene: VideoScene | null;
+  line: CaptionLine;
+  dialogue: ReturnType<typeof parseDialogue>;
+  palette: NewsPalette;
 }) => {
-  const resolved = speakers.length ? speakers : [{name: 'Pleopod', role: 'Podcast'}];
+  const items = moduleItems(scene, line, props);
+  const bodyText =
+    [props.summary, line?.text, props.description, ...dialogue.map((item) => item.text)]
+      .filter(Boolean)
+      .join(' ') || props.title;
+
   return (
-    <div style={{display: 'grid', gap: 12}}>
-      {resolved.slice(0, 2).map((speaker, index) => {
-        const active = speaker.name.toLowerCase() === (activeSpeaker || '').toLowerCase();
-        return (
+    <section
+      style={{
+        position: 'absolute',
+        left: 52,
+        right: 52,
+        top: 484,
+        height: 188,
+        display: 'grid',
+        gridTemplateColumns: 'repeat(5, 1fr)',
+        columnGap: 18,
+        overflow: 'hidden',
+      }}
+    >
+      {Array.from({length: 5}, (_, index) => (
+        <div key={index} style={{position: 'relative', minWidth: 0, overflow: 'hidden'}}>
           <div
-            key={speaker.name}
             style={{
-              display: 'grid',
-              gridTemplateColumns: '58px 1fr auto',
-              alignItems: 'center',
-              gap: 16,
-              padding: '12px 0',
-              borderBottom: `1px solid ${palette.line}`,
+              fontFamily: serifFont,
+              fontSize: 15,
+              lineHeight: 1.16,
+              color: index === 0 ? palette.ink : palette.muted,
             }}
           >
+            {repeatCopy(bodyText, index === 0 ? 82 : 95)}
+          </div>
+          {index < items.length ? (
             <div
               style={{
-                width: 52,
-                height: 52,
-                display: 'grid',
-                placeItems: 'center',
-                background: active ? palette.accent : palette.panelStrong,
-                color: active ? '#151008' : palette.ink,
-                fontSize: 20,
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                borderTop: `1px solid ${palette.line}`,
+                paddingTop: 8,
+                fontSize: 12,
+                lineHeight: 1,
                 fontWeight: 950,
+                textTransform: 'uppercase',
               }}
             >
-              {initials(speaker.name)}
+              {String(index + 1).padStart(2, '0')}. {items[index]}
             </div>
-            <div>
-              <div style={{fontSize: 25, fontWeight: 900}}>{speaker.name}</div>
-              <div style={{fontSize: 17, color: palette.muted, marginTop: 3}}>
-                {speaker.role || speaker.style || 'Speaker'}
-              </div>
-            </div>
-            <div style={{fontSize: 18, color: active ? palette.accent : palette.muted}}>
-              {active ? 'LIVE' : `0${index + 1}`}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+          ) : null}
+        </div>
+      ))}
+    </section>
   );
 };
 
-const KeywordStack = ({keywords, palette}: {keywords: string[]; palette: Palette}) => {
+const BottomRail = ({
+  props,
+  scene,
+  line,
+  progress,
+  palette,
+}: {
+  props: PodcastVideoProps;
+  scene: VideoScene | null;
+  line: CaptionLine;
+  progress: number;
+  palette: NewsPalette;
+}) => {
+  const speaker = line?.speaker || props.speakers[0]?.name || props.brand.name;
+  const items = moduleItems(scene, line, props);
+
   return (
-    <div style={{display: 'flex', flexWrap: 'wrap', gap: 10}}>
-      {keywords.slice(0, 5).map((keyword, index) => (
+    <footer
+      style={{
+        position: 'absolute',
+        left: 52,
+        right: 52,
+        bottom: 34,
+        height: 106,
+        display: 'grid',
+        gridTemplateColumns: '330px 1fr 230px',
+        gap: 18,
+        borderTop: `2px solid ${palette.ink}`,
+        background: palette.paper,
+        zIndex: 3,
+      }}
+    >
+      <div
+        style={{
+          borderRight: `1px solid ${palette.line}`,
+          paddingTop: 14,
+        }}
+      >
+        <div style={{fontSize: 11, color: palette.muted, fontWeight: 950, textTransform: 'uppercase'}}>
+          Speaking now
+        </div>
+        <div style={{fontSize: 28, lineHeight: 0.96, fontWeight: 950, marginTop: 5}}>
+          {speaker}
+        </div>
+        <Barcode palette={palette} left={0} top={76} width={220} />
+      </div>
+      <div style={{position: 'relative', paddingTop: 12, minWidth: 0}}>
         <div
-          key={keyword}
           style={{
-            border: `1px solid ${index === 0 ? palette.accent : palette.line}`,
-            color: index === 0 ? palette.ink : palette.muted,
-            background: index === 0 ? 'rgba(245,158,11,0.16)' : 'rgba(255,255,255,0.045)',
-            padding: '8px 11px',
-            fontSize: 16,
-            fontWeight: 760,
-            textTransform: 'uppercase',
+            fontSize: fitFont(line?.text || props.summary || props.title, 25, 16, 112),
+            lineHeight: 1.05,
+            fontWeight: 920,
           }}
         >
-          {keyword}
+          {line?.text || props.summary || props.title}
         </div>
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 2,
+            height: 7,
+            background: palette.line,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              width: `${progress * 100}%`,
+              height: '100%',
+              background: palette.ink,
+            }}
+          />
+        </div>
+      </div>
+      <div style={{paddingTop: 14}}>
+        {items.slice(0, 3).map((item, index) => (
+          <div
+            key={`${item}-${index}`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '34px 1fr',
+              gap: 10,
+              alignItems: 'baseline',
+              minHeight: 28,
+              borderBottom: `1px solid ${palette.line}`,
+              fontSize: 12,
+              fontWeight: 900,
+              textTransform: 'uppercase',
+            }}
+          >
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </footer>
+  );
+};
+
+const MiniColumns = ({
+  palette,
+  left,
+  top,
+  width,
+  columns,
+}: {
+  palette: NewsPalette;
+  left: number;
+  top: number;
+  width: number;
+  columns: number;
+}) => {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left,
+        top,
+        width,
+        display: 'grid',
+        gridTemplateColumns: `repeat(${columns}, 1fr)`,
+        columnGap: 14,
+      }}
+    >
+      {Array.from({length: columns}, (_, index) => (
+        <div
+          key={index}
+          style={{
+            height: 86,
+            background:
+              `repeating-linear-gradient(0deg, ${palette.muted} 0, ${palette.muted} 2px, transparent 2px, transparent 8px)`,
+            opacity: 0.48,
+          }}
+        />
       ))}
     </div>
   );
 };
 
-const LowerThird = ({
-  line,
-  fallback,
-  speakers,
-  progress,
+const Barcode = ({
   palette,
+  left,
+  top,
+  width,
 }: {
-  line: CaptionLine;
-  fallback: string;
-  speakers: PodcastVideoProps['speakers'];
-  progress: number;
-  palette: Palette;
+  palette: NewsPalette;
+  left: number;
+  top: number;
+  width: number;
 }) => {
-  const text = line?.text || fallback;
-  const speaker = line?.speaker || speakers[0]?.name || 'Pleopod';
+  const bars = Array.from({length: 25}, (_, index) => index);
+
   return (
     <div
       style={{
         position: 'absolute',
-        left: 86,
-        right: 86,
-        bottom: 38,
-        display: 'grid',
-        gridTemplateColumns: '210px 1fr',
-        gap: 28,
-        alignItems: 'center',
+        left,
+        top,
+        width,
+        height: 34,
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 3,
       }}
     >
-      <div
-        style={{
-          height: 82,
-          display: 'grid',
-          gridTemplateColumns: '58px 1fr',
-          alignItems: 'center',
-          gap: 14,
-          borderTop: `1px solid ${palette.line}`,
-          borderBottom: `1px solid ${palette.line}`,
-        }}
-      >
+      {bars.map((index) => (
         <div
+          key={index}
           style={{
-            width: 48,
-            height: 48,
-            display: 'grid',
-            placeItems: 'center',
-            background: palette.primary,
-            color: '#051114',
-            fontWeight: 950,
-            fontSize: 18,
-          }}
-        >
-          {initials(speaker)}
-        </div>
-        <div>
-          <div style={{fontSize: 17, color: palette.muted, textTransform: 'uppercase'}}>Speaking</div>
-          <div style={{fontSize: fitFont(speaker, 25, 18, 16), fontWeight: 900}}>{speaker}</div>
-        </div>
-      </div>
-      <div
-        style={{
-          minHeight: 82,
-          display: 'grid',
-          alignItems: 'center',
-          borderTop: `1px solid ${palette.line}`,
-          borderBottom: `1px solid ${palette.line}`,
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            bottom: 0,
-            width: `${progress * 100}%`,
-            height: 4,
-            background: `linear-gradient(90deg, ${palette.primary}, ${palette.accent})`,
+            width: index % 4 === 0 ? 6 : index % 3 === 0 ? 4 : 2,
+            background: palette.ink,
+            opacity: index % 5 === 0 ? 0.46 : 1,
           }}
         />
-        <div
-          style={{
-            fontSize: fitFont(text, 36, 22, 150),
-            lineHeight: 1.1,
-            fontWeight: 850,
-            color: 'rgba(255,255,255,0.93)',
-          }}
-        >
-          {text}
-        </div>
-      </div>
+      ))}
     </div>
   );
 };
 
-const Waveform = ({progress, count, palette}: {progress: number; count: number; palette: Palette}) => {
-  const bars = Array.from({length: 44}, (_, index) => index);
-  return (
-    <div
-      style={{
-        height: 82,
-        display: 'flex',
-        alignItems: 'end',
-        gap: 7,
-        borderTop: `1px solid ${palette.line}`,
-        paddingTop: 18,
-      }}
-    >
-      {bars.map((index) => {
-        const wave = Math.sin(index * 0.78 + count * 0.21);
-        const active = index / bars.length <= progress;
-        return (
-          <div
-            key={index}
-            style={{
-              width: 6,
-              height: 18 + Math.abs(wave) * 50,
-              background: active ? palette.primary : 'rgba(255,255,255,0.22)',
-              opacity: active ? 1 : 0.52,
-            }}
-          />
-        );
-      })}
-    </div>
-  );
+const moduleItems = (
+  scene: VideoScene | null,
+  line: CaptionLine,
+  props: PodcastVideoProps,
+) => {
+  if (scene?.bullets.length) {
+    return scene.bullets;
+  }
+  if (scene?.diagramItems.length) {
+    return scene.diagramItems;
+  }
+  if (scene?.visualKeywords.length) {
+    return scene.visualKeywords;
+  }
+  return keyPhrases(line?.text || props.summary || props.title);
 };
 
-const ProgressRail = ({progress, palette}: {progress: number; palette: Palette}) => {
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left: 86,
-        right: 86,
-        bottom: 18,
-        height: 5,
-        background: 'rgba(255,255,255,0.14)',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          width: `${progress * 100}%`,
-          height: '100%',
-          background: `linear-gradient(90deg, ${palette.primary}, ${palette.green}, ${palette.accent})`,
-        }}
-      />
-    </div>
-  );
+const makePalette = (sceneIndex: number): NewsPalette => {
+  const stages = [
+    ['#1f201d', '#5b5a4a'],
+    ['#b3a0c8', '#7d7f8f'],
+    ['#c7635d', '#1f201d'],
+    ['#31585c', '#759293'],
+  ];
+  const [stage, stageAlt] = stages[sceneIndex % stages.length] ?? stages[0];
+  return {
+    stage,
+    stageAlt,
+    paper: '#eeeae0',
+    paperDim: '#d7d3c8',
+    ink: '#242420',
+    muted: 'rgba(36,36,32,0.58)',
+    line: 'rgba(36,36,32,0.32)',
+    accent: '#a5a060',
+    accentDark: '#2d2d2a',
+  };
 };
-
-const makePalette = (brand: PodcastVideoProps['brand']): Palette => ({
-  background: brand.backgroundColor || '#0a0c0f',
-  primary: brand.primaryColor || '#22d3ee',
-  accent: brand.accentColor || '#f59e0b',
-  ink: '#f7f7f2',
-  muted: 'rgba(247,247,242,0.62)',
-  panel: 'rgba(255,255,255,0.075)',
-  panelStrong: 'rgba(255,255,255,0.11)',
-  line: 'rgba(255,255,255,0.16)',
-  coral: '#ff6b5f',
-  green: '#8bdc9f',
-});
 
 const sceneLocalProgress = (scene: VideoScene | null, second: number) => {
   if (!scene) {
@@ -1232,26 +1028,28 @@ const keyPhrases = (text: string) => {
     .replace(/[^\w\s-]/g, '')
     .split(/\s+/)
     .filter((word) => word.length > 3)
-    .slice(0, 12);
+    .slice(0, 14);
   if (words.length === 0) {
-    return ['Evidence', 'Timing', 'Publishing'];
+    return ['Edition', 'Signal', 'Archive'];
   }
   return [
     words.slice(0, 3).join(' '),
     words.slice(3, 6).join(' '),
-    words.slice(6, 9).join(' '),
+    words.slice(6, 10).join(' '),
+    words.slice(10, 14).join(' '),
   ].filter(Boolean);
 };
 
-const initials = (name: string) => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) {
-    return 'P';
+const repeatCopy = (text: string, targetWords: number) => {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return '';
   }
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
+  const output: string[] = [];
+  for (let index = 0; output.length < targetWords; index += 1) {
+    output.push(words[index % words.length]);
+  }
+  return `${output.join(' ')}.`;
 };
 
 const formatDuration = (seconds: number) => {
@@ -1261,12 +1059,26 @@ const formatDuration = (seconds: number) => {
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 };
 
+const headlineFont = (text: string) => {
+  const length = text.length;
+  if (length > 34) {
+    return 74;
+  }
+  if (length > 26) {
+    return 88;
+  }
+  if (length > 20) {
+    return 98;
+  }
+  return 108;
+};
+
 const fitFont = (text: string | undefined, base: number, minimum: number, comfort = 80) => {
   const length = (text ?? '').length;
   if (length <= comfort) {
     return base;
   }
-  return Math.max(minimum, base - (length - comfort) * 0.24);
+  return Math.max(minimum, base - (length - comfort) * 0.34);
 };
 
 const clamp = (value: number, min: number, max: number) => {
