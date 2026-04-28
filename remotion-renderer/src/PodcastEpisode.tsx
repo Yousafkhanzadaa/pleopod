@@ -431,7 +431,6 @@ const FrontPage = ({
         props={props}
         scene={scene}
         line={line}
-        progress={progress}
         palette={palette}
       />
     </div>
@@ -588,7 +587,7 @@ const HeroNewsBlock = ({
         </h1>
       </div>
       <div style={{position: 'relative', borderLeft: `1px solid ${palette.line}`, paddingLeft: 22}}>
-        <ImagePanel props={props} headline={headline} palette={palette} />
+        <ImagePanel props={props} headline={headline} sceneIndex={sceneIndex} palette={palette} />
         <div
           style={{
             position: 'absolute',
@@ -613,10 +612,12 @@ const HeroNewsBlock = ({
 const ImagePanel = ({
   props,
   headline,
+  sceneIndex,
   palette,
 }: {
   props: PodcastVideoProps;
   headline: string;
+  sceneIndex: number;
   palette: NewsPalette;
 }) => {
   const thumbnailUrl = props.thumbnailUrl.trim();
@@ -644,7 +645,7 @@ const ImagePanel = ({
           }}
         />
       ) : (
-        <IllustratedNewsPhoto title={headline} palette={palette} />
+        <IllustratedNewsPhoto title={headline} sceneIndex={sceneIndex} palette={palette} />
       )}
       <div
         style={{
@@ -665,50 +666,66 @@ const ImagePanel = ({
   );
 };
 
-const IllustratedNewsPhoto = ({title, palette}: {title: string; palette: NewsPalette}) => {
+const IllustratedNewsPhoto = ({
+  title,
+  sceneIndex,
+  palette,
+}: {
+  title: string;
+  sceneIndex: number;
+  palette: NewsPalette;
+}) => {
   return (
     <div style={{position: 'absolute', inset: 0, background: '#d9d6cc'}}>
       <div
         style={{
           position: 'absolute',
-          left: 22,
-          top: 22,
+          inset: 0,
+          background:
+            'repeating-linear-gradient(90deg, rgba(20,20,18,0.18) 0, rgba(20,20,18,0.18) 1px, transparent 1px, transparent 5px)',
+          opacity: 0.18,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 16,
+          top: 14,
+          width: 184,
+          height: 184,
+          borderRadius: 999,
+          background: sceneIndex % 2 === 0 ? '#b9b8ae' : `${palette.accent}66`,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 72,
+          bottom: -8,
           width: 142,
-          height: 142,
-          borderRadius: 999,
-          background: '#b9b8ae',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          right: 34,
-          top: 24,
-          width: 120,
-          height: 120,
-          borderRadius: 999,
-          background: `${palette.accent}55`,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: 68,
-          bottom: 0,
-          width: 126,
-          height: 168,
-          borderRadius: '66px 66px 0 0',
+          height: 184,
+          borderRadius: '78px 78px 0 0',
           background: '#22221f',
         }}
       />
       <div
         style={{
           position: 'absolute',
-          left: 222,
-          top: 44,
-          width: 138,
-          fontSize: fitFont(title, 24, 16, 20),
-          lineHeight: 0.94,
+          left: 212,
+          top: 0,
+          bottom: 0,
+          width: 1,
+          background: palette.line,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 238,
+          top: 36,
+          width: 130,
+          fontSize: fitFont(title, 25, 15, 18),
+          lineHeight: 0.9,
           fontWeight: 950,
           textTransform: 'uppercase',
           color: '#22221f',
@@ -734,10 +751,13 @@ const ColumnDeck = ({
   palette: NewsPalette;
 }) => {
   const items = moduleItems(scene, line, props);
-  const bodyText =
-    [props.summary, line?.text, props.description, ...dialogue.map((item) => item.text)]
+  const sourceText =
+    [line?.text, props.summary, ...dialogue.map((item) => item.text), props.description]
       .filter(Boolean)
-      .join(' ') || props.title;
+      .map((item) => String(item));
+  const columns = Array.from({length: 5}, (_, index) =>
+    excerptWords(sourceText[index % Math.max(1, sourceText.length)] || props.title, index === 0 ? 58 : 54),
+  );
 
   return (
     <section
@@ -757,13 +777,15 @@ const ColumnDeck = ({
         <div key={index} style={{position: 'relative', minWidth: 0, overflow: 'hidden'}}>
           <div
             style={{
+              height: 136,
+              overflow: 'hidden',
               fontFamily: serifFont,
               fontSize: 15,
               lineHeight: 1.16,
               color: index === 0 ? palette.ink : palette.muted,
             }}
           >
-            {repeatCopy(bodyText, index === 0 ? 82 : 95)}
+            {columns[index]}
           </div>
           {index < items.length ? (
             <div
@@ -772,6 +794,8 @@ const ColumnDeck = ({
                 left: 0,
                 right: 0,
                 bottom: 0,
+                minHeight: 34,
+                background: palette.paper,
                 borderTop: `1px solid ${palette.line}`,
                 paddingTop: 8,
                 fontSize: 12,
@@ -793,17 +817,16 @@ const BottomRail = ({
   props,
   scene,
   line,
-  progress,
   palette,
 }: {
   props: PodcastVideoProps;
   scene: VideoScene | null;
   line: CaptionLine;
-  progress: number;
   palette: NewsPalette;
 }) => {
   const speaker = line?.speaker || props.speakers[0]?.name || props.brand.name;
   const items = moduleItems(scene, line, props);
+  const quote = line?.text || props.summary || props.title;
 
   return (
     <footer
@@ -811,10 +834,10 @@ const BottomRail = ({
         position: 'absolute',
         left: 52,
         right: 52,
-        bottom: 34,
-        height: 106,
+        bottom: 32,
+        height: 112,
         display: 'grid',
-        gridTemplateColumns: '330px 1fr 230px',
+        gridTemplateColumns: '262px 1fr 246px',
         gap: 18,
         borderTop: `2px solid ${palette.ink}`,
         background: palette.paper,
@@ -828,41 +851,47 @@ const BottomRail = ({
         }}
       >
         <div style={{fontSize: 11, color: palette.muted, fontWeight: 950, textTransform: 'uppercase'}}>
-          Speaking now
+          Byline
         </div>
-        <div style={{fontSize: 28, lineHeight: 0.96, fontWeight: 950, marginTop: 5}}>
-          {speaker}
+        <div style={{fontSize: 24, lineHeight: 0.96, fontWeight: 950, marginTop: 5}}>
+          {speaker.toUpperCase()}
         </div>
-        <Barcode palette={palette} left={0} top={76} width={220} />
+        <div style={{fontSize: 11, color: palette.muted, fontWeight: 800, marginTop: 5}}>
+          Transcript desk / field edition
+        </div>
+        <Barcode palette={palette} left={0} top={82} width={190} />
       </div>
-      <div style={{position: 'relative', paddingTop: 12, minWidth: 0}}>
-        <div
-          style={{
-            fontSize: fitFont(line?.text || props.summary || props.title, 25, 16, 112),
-            lineHeight: 1.05,
-            fontWeight: 920,
-          }}
-        >
-          {line?.text || props.summary || props.title}
-        </div>
+      <div
+        style={{
+          position: 'relative',
+          minWidth: 0,
+          padding: '14px 24px 0',
+          borderLeft: `1px solid ${palette.line}`,
+          borderRight: `1px solid ${palette.line}`,
+        }}
+      >
         <div
           style={{
             position: 'absolute',
             left: 0,
-            right: 0,
-            bottom: 2,
-            height: 7,
-            background: palette.line,
-            overflow: 'hidden',
+            top: 14,
+            fontFamily: serifFont,
+            fontSize: 58,
+            lineHeight: 0.76,
+            color: 'rgba(36,36,32,0.18)',
           }}
         >
-          <div
-            style={{
-              width: `${progress * 100}%`,
-              height: '100%',
-              background: palette.ink,
-            }}
-          />
+          “
+        </div>
+        <div
+          style={{
+            fontSize: fitFont(quote, 25, 16, 112),
+            lineHeight: 1.05,
+            fontWeight: 920,
+            paddingLeft: 26,
+          }}
+        >
+          {quote}
         </div>
       </div>
       <div style={{paddingTop: 14}}>
@@ -1050,6 +1079,14 @@ const repeatCopy = (text: string, targetWords: number) => {
     output.push(words[index % words.length]);
   }
   return `${output.join(' ')}.`;
+};
+
+const excerptWords = (text: string, targetWords: number) => {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return '';
+  }
+  return words.slice(0, targetWords).join(' ');
 };
 
 const formatDuration = (seconds: number) => {
