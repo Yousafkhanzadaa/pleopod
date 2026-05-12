@@ -87,6 +87,7 @@ const generateVideoPlan = async (payload: PodcastVideoProps, model: string) => {
   return normalizeVideoPlan({
     ...parsed,
     directorModel: model,
+    lineTimings: fallbackPlan.lineTimings,
   });
 };
 

@@ -4,7 +4,6 @@ from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.core.text import slugify
-from app.db.repositories import EpisodeRepository
 from app.models.enums import ArtifactType, EpisodeStatus, JobStatus, PipelineStep
 from app.providers.storage import public_object_url
 
@@ -29,7 +28,7 @@ class PublisherAgent(PipelineAgent):
         )
         base_slug = slugify(script.get("slug") or script.get("title") or job["topic"])
         slug = f"{base_slug}-{job_id[:8]}"
-        repo = EpisodeRepository(context.session)
+        repo = context.episode_repo
         audio_duration_seconds = duration_seconds_from_artifact(audio)
         episode = await repo.create_episode(
             {

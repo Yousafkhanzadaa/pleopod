@@ -100,6 +100,16 @@ const buildEvenScenes = (
 };
 
 const buildApproximateLineTimings = (props: PodcastVideoProps): LineTiming[] => {
+  if (props.lineTimings.length > 0) {
+    return props.lineTimings
+      .map((line) => ({
+        ...line,
+        startSeconds: roundSecond(clamp(line.startSeconds, 0, props.durationSeconds)),
+        endSeconds: roundSecond(clamp(line.endSeconds, 0, props.durationSeconds)),
+      }))
+      .filter((line) => line.endSeconds > line.startSeconds);
+  }
+
   const dialogue = parseDialogue(props.transcript);
   if (dialogue.length === 0) {
     return [];

@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     api_port: int = 8000
     admin_api_key: str | None = None
 
-    database_url: str = Field(default="postgresql://postgres:postgres@localhost:5432/postgres")
+    database_backend: Literal["auto", "sqlite", "postgres"] = "auto"
+    queue_backend: Literal["auto", "sqlite", "pgmq"] = "auto"
+    database_url: str = Field(default="sqlite+aiosqlite:///./local-data/pleopod.db")
     supabase_url: str | None = None
     supabase_anon_key: str | None = None
     supabase_service_role_key: str | None = None
@@ -82,6 +84,10 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @property
     def async_database_url(self) -> str:
+        if self.database_url.startswith("sqlite+aiosqlite://"):
+            return self.database_url
+        if self.database_url.startswith("sqlite://"):
+            return self.database_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
         if self.database_url.startswith("postgresql+asyncpg://"):
             return self.database_url
         if self.database_url.startswith("postgres://"):
@@ -89,6 +95,20 @@ class Settings(BaseSettings):
         if self.database_url.startswith("postgresql://"):
             return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
         return self.database_url
+
+    @property
+    def resolved_database_backend(self) -> Literal["sqlite", "postgres"]:
+        if self.database_backend != "auto":
+            return self.database_backend
+        if self.database_url.startswith(("sqlite://", "sqlite+aiosqlite://")):
+            return "sqlite"
+        return "postgres"
+
+    @property
+    def resolved_queue_backend(self) -> Literal["sqlite", "pgmq"]:
+        if self.queue_backend != "auto":
+            return self.queue_backend
+        return "sqlite" if self.resolved_database_backend == "sqlite" else "pgmq"
 
     @computed_field  # type: ignore[misc]
     @property
@@ -139,8 +159,22 @@ class Settings(BaseSettings):
             )
 
         parsed = urlparse(self.database_url)
-        if parsed.scheme not in {"postgresql", "postgres", "postgresql+asyncpg"}:
-            raise RuntimeError("DATABASE_URL must be a Postgres connection string")
+        sqlite_scheme = parsed.scheme in {"sqlite", "sqlite+aiosqlite"}
+        postgres_scheme = parsed.scheme in {"postgresql", "postgres", "postgresql+asyncpg"}
+        if not sqlite_scheme and not postgres_scheme:
+            raise RuntimeError("DATABASE_URL must be a Postgres or SQLite connection string")
+
+        if sqlite_scheme:
+            if self.resolved_database_backend != "sqlite":
+                raise RuntimeError("SQLite DATABASE_URL requires DATABASE_BACKEND=sqlite or auto")
+            if self.resolved_queue_backend != "sqlite":
+                raise RuntimeError("SQLite DATABASE_URL requires QUEUE_BACKEND=sqlite or auto")
+            return
+
+        if self.resolved_database_backend != "postgres":
+            raise RuntimeError("Postgres DATABASE_URL requires DATABASE_BACKEND=postgres or auto")
+        if self.resolved_queue_backend != "pgmq":
+            raise RuntimeError("Postgres DATABASE_URL requires QUEUE_BACKEND=pgmq or auto")
 
         try:
             _ = parsed.port

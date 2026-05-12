@@ -11,7 +11,7 @@ from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.queue import QueueRepository
 from app.db.repositories import JobRepository
-from app.db.session import dispose_engine, get_sessionmaker
+from app.db.session import dispose_engine, get_sessionmaker, initialize_database
 from app.models.enums import AgentStatus, JobStatus, PipelineStep
 from app.providers.factory import create_ai_provider
 from app.providers.storage import create_storage
@@ -76,11 +76,12 @@ class PipelineWorker:
         self.settings = settings
         self.storage = create_storage(settings)
         self.ai = create_ai_provider(settings)
-        self.sessionmaker = get_sessionmaker()
+        self.sessionmaker = get_sessionmaker(settings)
         self.running = True
         self.queue_names = active_queue_names(settings)
 
     async def run_forever(self) -> None:
+        await initialize_database(self.settings)
         logger.info("Pleopod worker started")
         while self.running:
             processed = False
@@ -101,7 +102,8 @@ class PipelineWorker:
 
     async def _refresh_database_connections(self) -> None:
         await dispose_engine()
-        self.sessionmaker = get_sessionmaker()
+        await initialize_database(self.settings)
+        self.sessionmaker = get_sessionmaker(self.settings)
 
     async def _process_queue(self, queue_name: str) -> bool:
         async with self.sessionmaker() as session:

@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {videoPlanSchema} from './video-plan';
+import {lineTimingSchema, videoPlanSchema} from './video-plan';
 
 export const speakerSchema = z.object({
   name: z.string().min(1),
@@ -45,6 +45,7 @@ export const podcastVideoSchema = z.object({
   publishedAt: z.string().optional(),
   speakers: z.array(speakerSchema).min(1).max(2).default([]),
   transcript: z.string().default(''),
+  lineTimings: z.array(lineTimingSchema).default([]),
   chapters: z.array(chapterSchema).default([]),
   videoPlan: videoPlanSchema.optional(),
   format: videoFormatSchema.default({
@@ -93,6 +94,7 @@ export const defaultPodcastVideoProps: PodcastVideoProps = {
   transcript:
     'Arman: Welcome back. Today we are looking at how an AI podcast pipeline should work.\n' +
     'Maya: The key is simple: research first, verify every important claim, then generate audio.',
+  lineTimings: [],
   chapters: [
     {title: 'Research', startSeconds: 0},
     {title: 'Verification', startSeconds: 15},

@@ -1,8 +1,12 @@
+import json
+from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from app.agents.video_render import VideoRenderAgent, build_video_payload
+import app.agents.video_render as video_render_module
+from app.agents.video_render import VideoRenderAgent, build_video_payload, renderable_payload
 from app.models.enums import ArtifactType
 
 
@@ -86,7 +90,7 @@ class _JobRepo:
 
 
 class _Context:
-    def __init__(self) -> None:
+    def __init__(self, local_storage_path: Path = Path("/tmp")) -> None:
         self.settings = SimpleNamespace(
             gemini_api_key=None,
             remotion_render_output_format="mp4",
@@ -95,6 +99,8 @@ class _Context:
             remotion_render_timeout_seconds=30,
             enable_youtube_uploading=False,
             r2_public_base_url=None,
+            storage_backend="local",
+            local_storage_path=local_storage_path,
         )
         self.storage = _Storage()
         self.artifact_repo = _ArtifactRepo()
@@ -197,14 +203,84 @@ async def test_build_video_payload_uses_audio_duration_with_tail_pad() -> None:
 
 
 @pytest.mark.asyncio
+async def test_build_video_payload_includes_audio_segment_line_timings() -> None:
+    context = _Context()
+
+    payload = await build_video_payload(
+        _job(),
+        _script(),
+        _episode(),
+        {
+            "r2_key": "jobs/job-1/audio/final.mp3",
+            "mime_type": "audio/mpeg",
+            "metadata": {
+                "duration_seconds": 10,
+                "segment_timings": [
+                    {
+                        "index": 1,
+                        "start_seconds": 0,
+                        "end_seconds": 10,
+                        "source_transcript": "Arman: Welcome.\nMaya: Let's unpack it.",
+                    }
+                ],
+            },
+        },
+        {"r2_key": "jobs/job-1/thumbnail/cover.png"},
+        context,  # type: ignore[arg-type]
+    )
+
+    assert payload["lineTimings"] == [
+        {
+            "id": "line_001",
+            "speaker": "Arman",
+            "text": "Welcome.",
+            "startSeconds": 0.0,
+            "endSeconds": 5.0,
+        },
+        {
+            "id": "line_002",
+            "speaker": "Maya",
+            "text": "Let's unpack it.",
+            "startSeconds": 5.0,
+            "endSeconds": 10.0,
+        },
+    ]
+
+
+def test_renderable_payload_rewrites_local_assets_to_http_urls() -> None:
+    payload = {
+        "audioUrl": "file:///tmp/final.mp3",
+        "thumbnailUrl": "file:///tmp/cover.png",
+        "title": "AI Pipelines",
+    }
+
+    rendered = renderable_payload(
+        payload,
+        audio_key="jobs/job-1/audio/final.mp3",
+        thumbnail_key="jobs/job-1/thumbnail/cover image.png",
+        local_asset_base_url="http://127.0.0.1:51234",
+    )
+
+    assert rendered["audioUrl"] == "http://127.0.0.1:51234/jobs/job-1/audio/final.mp3"
+    assert (
+        rendered["thumbnailUrl"]
+        == "http://127.0.0.1:51234/jobs/job-1/thumbnail/cover%20image.png"
+    )
+    assert payload["thumbnailUrl"] == "file:///tmp/cover.png"
+
+
+@pytest.mark.asyncio
 async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    context = _Context()
+    context = _Context(tmp_path)
     agent = VideoRenderAgent()
     attached: dict[str, object] = {}
+    render_props: dict[str, object] = {}
 
     async def _run_director(self, context, props_path, plan_path) -> None:
+        render_props.update(json.loads(props_path.read_text(encoding="utf-8")))
         plan_path.write_text('{"version":1,"durationSeconds":600,"scenes":[]}', encoding="utf-8")
 
     async def _run_render(self, context, props_path, plan_path, output_path) -> None:
@@ -214,14 +290,24 @@ async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
         attached["episode_id"] = episode_id
         attached["r2_key"] = video_artifact["r2_key"]
 
+    @contextmanager
+    def _local_asset_server(context):
+        yield "http://127.0.0.1:51234"
+
     monkeypatch.setattr(VideoRenderAgent, "_run_director", _run_director)
     monkeypatch.setattr(VideoRenderAgent, "_run_render", _run_render)
     monkeypatch.setattr(VideoRenderAgent, "_attach_video_asset", _attach_video_asset)
+    monkeypatch.setattr(video_render_module, "local_asset_server", _local_asset_server)
 
     result = await agent.run(_job(), context, {})  # type: ignore[arg-type]
 
     assert result.stop_pipeline is True
     assert result.output_artifact_id == "video_mp4-id"
+    assert render_props["audioUrl"] == "http://127.0.0.1:51234/jobs/job-1/audio/final.mp3"
+    assert (
+        render_props["thumbnailUrl"]
+        == "http://127.0.0.1:51234/jobs/job-1/thumbnail/cover.png"
+    )
     assert attached["episode_id"] == "episode-1"
     assert (
         ArtifactType.VIDEO_PAYLOAD_JSON,

@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.json_utils import extract_json
-from app.db.repositories import ArtifactRepository, JobRepository
+from app.db.repositories import (
+    ArtifactRepository,
+    EpisodeRepository,
+    JobRepository,
+    KnowledgeRepository,
+    TTSSegmentRepository,
+)
 from app.models.enums import ArtifactType, PipelineStep
 from app.providers.ai import AIProvider
 from app.providers.storage import ObjectStorage
@@ -49,6 +55,18 @@ class AgentContext:
     @property
     def job_repo(self) -> JobRepository:
         return JobRepository(self.session)
+
+    @property
+    def knowledge_repo(self) -> KnowledgeRepository:
+        return KnowledgeRepository(self.session)
+
+    @property
+    def episode_repo(self) -> EpisodeRepository:
+        return EpisodeRepository(self.session)
+
+    @property
+    def tts_segment_repo(self) -> TTSSegmentRepository:
+        return TTSSegmentRepository(self.session)
 
     async def latest_artifact(self, job_id: str, artifact_type: ArtifactType) -> dict[str, Any]:
         artifact = await self.artifact_repo.get_latest_for_job(job_id, artifact_type)

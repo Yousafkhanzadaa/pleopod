@@ -4,13 +4,13 @@ from typing import Any
 from uuid import UUID
 
 from app.core.json_utils import to_pretty_json
-from app.db.repositories import ArtifactRepository
+from app.db.interfaces import ArtifactStore
 from app.models.enums import ArtifactType
 from app.providers.storage import ObjectStorage, StoredObject
 
 
 class ArtifactService:
-    def __init__(self, storage: ObjectStorage, repo: ArtifactRepository):
+    def __init__(self, storage: ObjectStorage, repo: ArtifactStore):
         self.storage = storage
         self.repo = repo
 

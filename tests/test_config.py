@@ -30,6 +30,26 @@ def test_default_gemini_models_use_low_cost_development_profile(
     assert settings.remotion_video_director_model == "gemini-2.5-flash-lite"
 
 
+def test_default_runtime_is_local_first() -> None:
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.resolved_database_backend == "sqlite"
+    assert settings.resolved_queue_backend == "sqlite"
+    assert settings.storage_backend == "local"
+    assert settings.async_database_url.startswith("sqlite+aiosqlite:///")
+
+
+def test_postgres_url_selects_postgres_and_pgmq_when_backend_is_auto() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_url="postgresql://postgres:password@db.example.supabase.co:5432/postgres",
+    )
+
+    assert settings.resolved_database_backend == "postgres"
+    assert settings.resolved_queue_backend == "pgmq"
+    assert settings.async_database_url.startswith("postgresql+asyncpg://")
+
+
 def test_malformed_database_url_with_unencoded_slash_has_clear_error() -> None:
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,

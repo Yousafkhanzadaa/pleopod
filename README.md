@@ -6,9 +6,9 @@ fact-checking artifacts, thumbnails, audio, optional video, and optional YouTube
 uploads through a durable queue-based pipeline.
 
 The project is built for local experimentation first, but the architecture is
-close to production shape: FastAPI for the control plane, Supabase Postgres and
-Queues for state, Cloudflare R2 for generated artifacts, Gemini for AI work, and
-Remotion for optional video rendering.
+close to production shape: FastAPI for the control plane, SQLite/local files for
+local development, Supabase Postgres and Queues plus Cloudflare R2 as production
+adapters, Gemini for AI work, and Remotion for optional video rendering.
 
 ## What It Does
 
@@ -64,9 +64,9 @@ publish -> video_render -> youtube_upload
 - **Python 3.12+**
 - **FastAPI** for API and admin endpoints
 - **SQLAlchemy async** for database access
-- **Supabase Postgres** for metadata, jobs, artifacts, and episodes
-- **Supabase Queues / PGMQ** for durable worker messages
-- **Cloudflare R2** or local filesystem storage for generated assets
+- **SQLite locally** or **Supabase Postgres** for metadata, jobs, artifacts, and episodes
+- **SQLite locally** or **Supabase Queues / PGMQ** for durable worker messages
+- **Local filesystem storage** or **Cloudflare R2** for generated assets
 - **Google Gemini API** for orchestration, research, scripts, verification, Imagen thumbnails, and TTS
 - **Remotion** for optional deterministic video rendering
 - **YouTube Data API v3** for optional video upload
@@ -94,8 +94,10 @@ youtube-uploader/      Standalone YouTube upload CLI
 ## Prerequisites
 
 - Python 3.12 or newer
-- A Supabase project or local Supabase stack with Postgres and PGMQ support
-- Supabase CLI for applying migrations
+- No external database is required for local development.
+- A Supabase project or local Supabase stack with Postgres and PGMQ support if
+  you want the production adapter.
+- Supabase CLI for applying migrations when using Supabase/Postgres.
 - Node.js and npm if you want Remotion video rendering
 - Gemini API access if you want real AI generation
 - Cloudflare R2 credentials if you want production-style object storage
@@ -112,10 +114,13 @@ cp .env.example .env
 Edit `.env` with at least:
 
 ```env
-DATABASE_URL=postgresql://...
+DATABASE_BACKEND=sqlite
+QUEUE_BACKEND=sqlite
+DATABASE_URL=sqlite+aiosqlite:///./local-data/pleopod.db
 ADMIN_API_KEY=replace-with-a-long-random-secret
 AI_PROVIDER=fake
 STORAGE_BACKEND=local
+LOCAL_STORAGE_PATH=local-artifacts
 ```
 
 Install Python dependencies:
@@ -126,7 +131,8 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Apply database migrations to your Supabase Postgres database:
+For local SQLite mode, tables are created automatically when the API or worker
+starts. Apply Supabase migrations only when using the Postgres adapter:
 
 ```bash
 supabase db push
@@ -166,9 +172,13 @@ curl http://localhost:8000/episodes
 
 ## Low-Cost Local Mode
 
-For development, start with fake AI and local artifact storage:
+For development, start with SQLite, fake AI, SQLite queues, and local artifact
+storage:
 
 ```env
+DATABASE_BACKEND=sqlite
+QUEUE_BACKEND=sqlite
+DATABASE_URL=sqlite+aiosqlite:///./local-data/pleopod.db
 AI_PROVIDER=fake
 STORAGE_BACKEND=local
 LOCAL_STORAGE_PATH=local-artifacts
@@ -176,8 +186,8 @@ ENABLE_VIDEO_RENDERING=false
 ENABLE_YOUTUBE_UPLOADING=false
 ```
 
-This still uses the database and queues, but avoids external AI, R2, Remotion,
-and YouTube calls. Use this mode for backend changes, tests, and debugging.
+This avoids Supabase, R2, external AI, Remotion, and YouTube calls. Use this mode
+for backend changes, tests, and debugging individual pipeline steps.
 
 ## Environment Variables
 
@@ -185,7 +195,9 @@ Most settings are documented in `.env.example`. The most important groups are:
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Supabase Postgres connection string. Use a pooler/session-mode URL for long-running services. |
+| `DATABASE_BACKEND` | `sqlite`, `postgres`, or `auto`. Defaults to local SQLite through `auto`. |
+| `QUEUE_BACKEND` | `sqlite`, `pgmq`, or `auto`. Defaults to SQLite for SQLite databases and PGMQ for Postgres. |
+| `DATABASE_URL` | SQLite URL for local mode or Supabase Postgres connection string for production mode. |
 | `ADMIN_API_KEY` | Shared secret for admin endpoints when not using Supabase admin JWTs. |
 | `SUPABASE_URL` | Supabase project URL. |
 | `SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY` | Modern Supabase API keys. |
@@ -207,6 +219,9 @@ AI generation, TTS, image generation, video rendering, storage, and YouTube
 retries can cost real money. The safest development defaults are:
 
 ```env
+DATABASE_BACKEND=sqlite
+QUEUE_BACKEND=sqlite
+DATABASE_URL=sqlite+aiosqlite:///./local-data/pleopod.db
 AI_PROVIDER=fake
 STORAGE_BACKEND=local
 ENABLE_VIDEO_RENDERING=false
@@ -331,6 +346,50 @@ Run the test suite:
 
 ```bash
 PYTHONPATH=. pytest
+```
+
+## Running One Stage Locally
+
+Use `pleopod-stage` when you want to perfect one pipeline step without running
+the whole worker loop.
+
+List the stage contracts:
+
+```bash
+pleopod-stage list
+```
+
+Inspect one stage:
+
+```bash
+pleopod-stage inspect script
+```
+
+Run one stage for an existing job:
+
+```bash
+pleopod-stage run script <job-id>
+```
+
+By default, this records an agent run and writes the stage outputs, but does not
+enqueue the next stage. That makes it safe to iterate on one step at a time.
+
+Useful local iteration examples:
+
+```bash
+pleopod-stage run research <job-id>
+pleopod-stage run script <job-id>
+pleopod-stage run fact_check <job-id>
+pleopod-stage run audio_config <job-id>
+pleopod-stage run audio_generation <job-id> --force
+pleopod-stage run video_render <job-id> --force
+pleopod-stage run youtube_upload <job-id> --dry-run-upload
+```
+
+When a stage is good and you want the normal pipeline to continue:
+
+```bash
+pleopod-stage run script <job-id> --enqueue-next
 ```
 
 Run a focused slice:

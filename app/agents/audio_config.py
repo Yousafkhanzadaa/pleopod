@@ -49,6 +49,7 @@ def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, An
             {
                 "index": index,
                 "transcript": prompt,
+                "source_transcript": chunk,
                 "source_char_count": len(chunk),
                 "prompt_char_count": len(prompt),
             }
@@ -99,6 +100,13 @@ def normalize_tts_transcript(transcript: str) -> str:
     text = _TTS_PREAMBLE_RE.sub("", text, count=1).strip()
     text = _TRANSCRIPT_HEADER_RE.sub("", text, count=1).strip()
     return text
+
+
+def source_transcript_from_tts_prompt(prompt: str) -> str:
+    _, marker, source = prompt.partition("### TRANSCRIPT")
+    if marker:
+        return source.strip()
+    return normalize_tts_transcript(prompt)
 
 
 def build_tts_prompt(transcript_chunk: str, speakers: list[dict[str, Any]]) -> str:

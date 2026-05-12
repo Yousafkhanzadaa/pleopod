@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from typing import Any
 
-from sqlalchemy import text
-
-from app.agents.audio_config import build_tts_config, tts_config_needs_rebuild
+from app.agents.audio_config import (
+    build_tts_config,
+    source_transcript_from_tts_prompt,
+    tts_config_needs_rebuild,
+)
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.models.enums import ArtifactType, PipelineStep
 from app.providers.ai import AudioGeneration, SpeakerVoice
@@ -28,14 +32,7 @@ class AudioGenerationAgent(PipelineAgent):
         self, job: dict[str, Any], context: AgentContext, message: dict[str, Any]
     ) -> AgentResult:
         job_id = str(job["id"])
-        existing_final = await context.artifact_repo.get_latest_for_job(
-            job_id, ArtifactType.FINAL_AUDIO
-        )
-        if existing_final:
-            logger.info("Final audio already exists for job %s, skipping regeneration", job_id)
-            return AgentResult(
-                output_artifact_id=str(existing_final["id"]),
-            )
+        force = bool(message.get("force"))
 
         config = await context.latest_json(job_id, ArtifactType.TTS_CONFIG_JSON)
         if tts_config_needs_rebuild(config):
@@ -48,6 +45,18 @@ class AudioGenerationAgent(PipelineAgent):
                 job_id=job_id,
                 metadata={"reason": "rebuilt stale or oversized TTS config"},
             )
+        config_fingerprint = tts_config_fingerprint(config)
+        existing_final = await context.artifact_repo.get_latest_for_job(
+            job_id, ArtifactType.FINAL_AUDIO
+        )
+        if (
+            existing_final
+            and not force
+            and final_audio_matches_tts_config(existing_final, config_fingerprint)
+        ):
+            logger.info("Final audio already matches current TTS config for job %s", job_id)
+            return AgentResult(output_artifact_id=str(existing_final["id"]))
+
         speakers = [
             SpeakerVoice(
                 speaker=item["speaker"],
@@ -57,11 +66,20 @@ class AudioGenerationAgent(PipelineAgent):
             for item in config["speakers"]
         ]
         audio_segments: list[AudioGeneration] = []
+        segment_timings: list[dict[str, Any]] = []
+        segment_start_seconds = 0.0
         chunk_count = len(config["chunks"])
         for chunk in config["chunks"]:
             index = int(chunk["index"])
             transcript = chunk["transcript"]
-            existing_segment = await self._get_completed_segment_audio(context, job_id, index)
+            source_transcript = chunk.get("source_transcript") or source_transcript_from_tts_prompt(
+                transcript
+            )
+            existing_segment = (
+                None
+                if force
+                else await self._get_completed_segment_audio(context, job_id, index, transcript)
+            )
             if existing_segment is not None:
                 logger.info(
                     "Reusing completed TTS segment %s/%s for job %s",
@@ -78,7 +96,7 @@ class AudioGenerationAgent(PipelineAgent):
                 chunk_count,
                 job_id,
             )
-            await self._upsert_segment(context, job_id, index, transcript, "running")
+            await context.tts_segment_repo.upsert_segment(job_id, index, transcript, "running")
             audio = await context.ai.generate_tts(
                 prompt=transcript,
                 model=config["tts_model"],
@@ -95,9 +113,24 @@ class AudioGenerationAgent(PipelineAgent):
                 job_id=job_id,
                 metadata={"segment_index": index},
             )
-            await self._upsert_segment(
-                context, job_id, index, transcript, "completed", r2_key=segment_key
+            await context.tts_segment_repo.upsert_segment(
+                job_id, index, transcript, "completed", r2_key=segment_key
             )
+            segment_duration_seconds = audio_duration_seconds(audio_segments[-1])
+            segment_end_seconds = segment_start_seconds + segment_duration_seconds
+            segment_timings.append(
+                {
+                    "index": index,
+                    "start_seconds": round(segment_start_seconds, 3),
+                    "end_seconds": round(segment_end_seconds, 3),
+                    "duration_seconds": round(segment_duration_seconds, 3),
+                    "source_transcript": source_transcript,
+                }
+            )
+            segment_start_seconds = segment_end_seconds
+
+        if len(segment_timings) < len(audio_segments):
+            segment_timings = build_segment_timings(config["chunks"], audio_segments)
 
         final_wav = stitch_pcm_to_wav(audio_segments)
         final_duration_seconds = sum(audio_duration_seconds(segment) for segment in audio_segments)
@@ -122,6 +155,8 @@ class AudioGenerationAgent(PipelineAgent):
             metadata={
                 "segment_count": len(audio_segments),
                 "duration_seconds": round(final_duration_seconds, 3),
+                "tts_config_fingerprint": config_fingerprint,
+                "segment_timings": segment_timings,
             },
         )
         return AgentResult(output_artifact_id=str(artifact["id"]))
@@ -131,55 +166,57 @@ class AudioGenerationAgent(PipelineAgent):
         context: AgentContext,
         job_id: str,
         index: int,
+        transcript: str,
     ) -> AudioGeneration | None:
-        result = await context.session.execute(
-            text(
-                """
-                select r2_key
-                from tts_segments
-                where job_id = :job_id
-                  and segment_index = :segment_index
-                  and status = 'completed'
-                  and r2_key is not null
-                """
-            ),
-            {"job_id": job_id, "segment_index": index},
-        )
-        row = result.mappings().first()
-        if not row:
+        r2_key = await context.tts_segment_repo.get_completed_segment_key(job_id, index, transcript)
+        if not r2_key:
             return None
 
-        wav_data = await context.storage.get_bytes(row["r2_key"])
+        wav_data = await context.storage.get_bytes(r2_key)
         return audio_from_wav_bytes(wav_data)
 
-    async def _upsert_segment(
-        self,
-        context: AgentContext,
-        job_id: str,
-        index: int,
-        transcript: str,
-        status: str,
-        r2_key: str | None = None,
-    ) -> None:
-        await context.session.execute(
-            text(
-                """
-                insert into tts_segments (
-                  job_id, segment_index, transcript, status, r2_key, mime_type
-                )
-                values (:job_id, :segment_index, :transcript, :status, :r2_key, 'audio/wav')
-                on conflict (job_id, segment_index)
-                do update set status = excluded.status,
-                              r2_key = coalesce(excluded.r2_key, tts_segments.r2_key),
-                              updated_at = now()
-                """
-            ),
+
+def final_audio_matches_tts_config(
+    existing_final: dict[str, Any],
+    config_fingerprint: str,
+) -> bool:
+    metadata = existing_final.get("metadata") or {}
+    return metadata.get("tts_config_fingerprint") == config_fingerprint
+
+
+def tts_config_fingerprint(config: dict[str, Any]) -> str:
+    payload = {
+        "tts_model": config.get("tts_model"),
+        "export_format": config.get("export_format"),
+        "speakers": config.get("speakers") or [],
+        "chunks": [
+            {"index": int(chunk["index"]), "transcript": str(chunk.get("transcript") or "")}
+            for chunk in config.get("chunks") or []
+        ],
+    }
+    data = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def build_segment_timings(
+    chunks: list[dict[str, Any]],
+    audio_segments: list[AudioGeneration],
+) -> list[dict[str, Any]]:
+    timings: list[dict[str, Any]] = []
+    cursor = 0.0
+    for chunk, audio in zip(chunks, audio_segments, strict=False):
+        duration = audio_duration_seconds(audio)
+        end_seconds = cursor + duration
+        transcript = str(chunk.get("transcript") or "")
+        timings.append(
             {
-                "job_id": job_id,
-                "segment_index": index,
-                "transcript": transcript,
-                "status": status,
-                "r2_key": r2_key,
-            },
+                "index": int(chunk["index"]),
+                "start_seconds": round(cursor, 3),
+                "end_seconds": round(end_seconds, 3),
+                "duration_seconds": round(duration, 3),
+                "source_transcript": chunk.get("source_transcript")
+                or source_transcript_from_tts_prompt(transcript),
+            }
         )
-        await context.session.commit()
+        cursor = end_seconds
+    return timings

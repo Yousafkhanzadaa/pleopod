@@ -10,7 +10,6 @@ from pydantic import ValidationError
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.agents.prompts import research_prompt, research_repair_prompt
 from app.core.json_utils import parse_model_json, to_pretty_json
-from app.db.repositories import KnowledgeRepository
 from app.models.enums import ArtifactType, PipelineStep
 from app.schemas.agent_outputs import ResearchDossier
 
@@ -108,9 +107,8 @@ class ResearchAgent(PipelineAgent):
             job_id=job_id,
         )
 
-        knowledge_repo = KnowledgeRepository(context.session)
-        await knowledge_repo.replace_sources(job_id, sources)
-        await knowledge_repo.replace_claims(job_id, claims)
+        await context.knowledge_repo.replace_sources(job_id, sources)
+        await context.knowledge_repo.replace_claims(job_id, claims)
         return AgentResult(output_artifact_id=str(claim_artifact["id"]))
 
     async def _parse_research_response(

@@ -3,17 +3,23 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import re
 import tempfile
+from contextlib import contextmanager
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.core.json_utils import to_pretty_json
-from app.db.repositories import EpisodeRepository
 from app.models.enums import ArtifactType, JobStatus, PipelineStep
 from app.providers.storage import public_object_url
 from app.services.audio import audio_bytes_duration_seconds
+
+_DIALOGUE_LINE_RE = re.compile(r"^([^:]{1,48}):\s*(.+)$")
 
 
 class VideoRenderAgent(PipelineAgent):
@@ -24,6 +30,7 @@ class VideoRenderAgent(PipelineAgent):
         self, job: dict[str, Any], context: AgentContext, message: dict[str, Any]
     ) -> AgentResult:
         job_id = str(job["id"])
+        force = bool(message.get("force"))
         episode_id = self._episode_id(job)
         if not episode_id:
             raise RuntimeError(f"Missing episode_id metadata for video render job {job_id}")
@@ -31,7 +38,7 @@ class VideoRenderAgent(PipelineAgent):
         existing_video = await context.artifact_repo.get_latest_for_job(
             job_id, ArtifactType.VIDEO_MP4
         )
-        if existing_video:
+        if existing_video and not force:
             await self._attach_video_asset(context, episode_id, existing_video)
             return await self._result_after_video(context, job, episode_id, existing_video["id"])
 
@@ -56,21 +63,28 @@ class VideoRenderAgent(PipelineAgent):
             plan_path = temp_path / "video_plan.json"
             output_path = temp_path / f"final.{context.settings.remotion_render_output_format}"
 
-            props_path.write_text(to_pretty_json(payload), encoding="utf-8")
-            await self._run_director(context, props_path, plan_path)
-            plan = plan_path.read_text(encoding="utf-8")
-            plan_artifact = await context.artifact_service.put_text(
-                f"jobs/{job_id}/video/video_plan.json",
-                plan,
-                ArtifactType.VIDEO_PLAN_JSON,
-                "application/json",
-                job_id=job_id,
-                episode_id=episode_id,
-                metadata={"payload_artifact_id": str(payload_artifact["id"])},
-            )
+            with local_asset_server(context) as local_asset_base_url:
+                render_payload = renderable_payload(
+                    payload,
+                    audio_key=audio["r2_key"],
+                    thumbnail_key=thumbnail["r2_key"],
+                    local_asset_base_url=local_asset_base_url,
+                )
+                props_path.write_text(to_pretty_json(render_payload), encoding="utf-8")
+                await self._run_director(context, props_path, plan_path)
+                plan = plan_path.read_text(encoding="utf-8")
+                plan_artifact = await context.artifact_service.put_text(
+                    f"jobs/{job_id}/video/video_plan.json",
+                    plan,
+                    ArtifactType.VIDEO_PLAN_JSON,
+                    "application/json",
+                    job_id=job_id,
+                    episode_id=episode_id,
+                    metadata={"payload_artifact_id": str(payload_artifact["id"])},
+                )
 
-            await self._run_render(context, props_path, plan_path, output_path)
-            video_bytes = output_path.read_bytes()
+                await self._run_render(context, props_path, plan_path, output_path)
+                video_bytes = output_path.read_bytes()
 
         video_artifact = await context.artifact_service.put_bytes(
             f"episodes/{episode_id}/video/final.mp4",
@@ -192,7 +206,7 @@ class VideoRenderAgent(PipelineAgent):
         episode_id: str,
         video_artifact: dict[str, Any],
     ) -> None:
-        await EpisodeRepository(context.session).create_asset(
+        await context.episode_repo.create_asset(
             {
                 "episode_id": episode_id,
                 "asset_type": "video",
@@ -277,6 +291,7 @@ async def build_video_payload(
             for speaker in script.get("speakers", [])
         ],
         "transcript": script.get("transcript") or "",
+        "lineTimings": build_dialogue_timings(audio_artifact),
         "chapters": normalize_chapters(script.get("chapters") or []),
         "format": {
             "platform": "youtube",
@@ -346,6 +361,79 @@ def normalize_chapters(chapters: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return normalized
 
 
+def build_dialogue_timings(audio_artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    metadata = audio_artifact.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        return []
+
+    segment_timings = metadata.get("segment_timings") or []
+    if not isinstance(segment_timings, list):
+        return []
+
+    timings: list[dict[str, Any]] = []
+    line_number = 1
+    for segment in segment_timings:
+        if not isinstance(segment, dict):
+            continue
+        start_seconds = nonnegative_float(segment.get("start_seconds"))
+        end_seconds = nonnegative_float(segment.get("end_seconds"))
+        if start_seconds is None or end_seconds is None or end_seconds <= start_seconds:
+            continue
+        lines = parse_dialogue_lines(str(segment.get("source_transcript") or ""))
+        if not lines:
+            continue
+
+        duration = end_seconds - start_seconds
+        weights = [max(24, len(line["text"])) for line in lines]
+        total_weight = sum(weights) or len(lines)
+        elapsed_weight = 0
+        for index, (line, weight) in enumerate(zip(lines, weights, strict=False)):
+            line_start = start_seconds + (duration * elapsed_weight / total_weight)
+            elapsed_weight += weight
+            line_end = (
+                end_seconds
+                if index == len(lines) - 1
+                else start_seconds + (duration * elapsed_weight / total_weight)
+            )
+            timings.append(
+                {
+                    "id": f"line_{line_number:03d}",
+                    "speaker": line["speaker"],
+                    "text": line["text"],
+                    "startSeconds": round_seconds(line_start),
+                    "endSeconds": round_seconds(line_end),
+                }
+            )
+            line_number += 1
+
+    return timings
+
+
+def parse_dialogue_lines(transcript: str) -> list[dict[str, str]]:
+    lines = []
+    for raw_line in transcript.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = _DIALOGUE_LINE_RE.match(line)
+        if not match:
+            continue
+        lines.append({"speaker": match.group(1).strip(), "text": match.group(2).strip()})
+    return lines
+
+
+def nonnegative_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def round_seconds(value: float) -> float:
+    return round(value, 3)
+
+
 async def asset_url(context: AgentContext, key: str) -> str:
     url = await context.storage.presigned_get_url(key, expires_in=3600)
     parsed = urlparse(url)
@@ -360,3 +448,65 @@ async def asset_url(context: AgentContext, key: str) -> str:
 
 def public_url(context: AgentContext, key: str) -> str | None:
     return public_object_url(context.settings, key)
+
+
+def renderable_payload(
+    payload: dict[str, Any],
+    *,
+    audio_key: str,
+    thumbnail_key: str,
+    local_asset_base_url: str | None,
+) -> dict[str, Any]:
+    if not local_asset_base_url:
+        return payload
+
+    return {
+        **payload,
+        "audioUrl": local_asset_url(local_asset_base_url, audio_key),
+        "thumbnailUrl": local_asset_url(local_asset_base_url, thumbnail_key),
+    }
+
+
+def local_asset_url(base_url: str, key: str) -> str:
+    return f"{base_url.rstrip('/')}/{quote(key.lstrip('/'), safe='/')}"
+
+
+@contextmanager
+def local_asset_server(context: AgentContext):
+    if getattr(context.settings, "storage_backend", None) != "local":
+        yield None
+        return
+
+    root = local_storage_root(context)
+    if root is None:
+        yield None
+        return
+
+    root.mkdir(parents=True, exist_ok=True)
+    handler = partial(_QuietStaticFileHandler, directory=str(root))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def local_storage_root(context: AgentContext) -> Path | None:
+    storage_root = getattr(context.storage, "root", None)
+    if storage_root is not None:
+        return Path(storage_root).resolve()
+
+    settings_root = getattr(context.settings, "local_storage_path", None)
+    if settings_root is not None:
+        return Path(settings_root).resolve()
+
+    return None
+
+
+class _QuietStaticFileHandler(SimpleHTTPRequestHandler):
+    def log_message(self, format: str, *args: object) -> None:
+        return

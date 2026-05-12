@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
-from app.db.repositories import EpisodeRepository
 from app.models.enums import ArtifactType, JobStatus, PipelineStep
 
 
@@ -21,6 +20,8 @@ class YouTubeUploadAgent(PipelineAgent):
         self, job: dict[str, Any], context: AgentContext, message: dict[str, Any]
     ) -> AgentResult:
         job_id = str(job["id"])
+        force = bool(message.get("force"))
+        dry_run = bool(message.get("dry_run"))
         episode_id = self._episode_id(job)
         if not episode_id:
             raise RuntimeError(f"Missing episode_id metadata for YouTube upload job {job_id}")
@@ -28,7 +29,7 @@ class YouTubeUploadAgent(PipelineAgent):
         existing_result = await context.artifact_repo.get_latest_for_job(
             job_id, ArtifactType.YOUTUBE_UPLOAD_RESULT_JSON
         )
-        if existing_result:
+        if existing_result and not force and not dry_run:
             result = await context.latest_json(job_id, ArtifactType.YOUTUBE_UPLOAD_RESULT_JSON)
             await self._attach_youtube_asset(context, episode_id, result)
             await self._complete_job(context, job, episode_id, result)
@@ -76,7 +77,7 @@ class YouTubeUploadAgent(PipelineAgent):
                 episode_id=episode_id,
             )
 
-            await self._run_uploader(context, manifest_path, result_path)
+            await self._run_uploader(context, manifest_path, result_path, dry_run=dry_run)
             result = json.loads(result_path.read_text(encoding="utf-8"))
 
         result_artifact = await context.artifact_service.put_json(
@@ -87,6 +88,9 @@ class YouTubeUploadAgent(PipelineAgent):
             episode_id=episode_id,
             metadata={"manifest_artifact_id": str(manifest_artifact["id"])},
         )
+        if dry_run:
+            return AgentResult(output_artifact_id=str(result_artifact["id"]), stop_pipeline=True)
+
         await self._attach_youtube_asset(context, episode_id, result)
         await self._complete_job(context, job, episode_id, result)
         return AgentResult(output_artifact_id=str(result_artifact["id"]), stop_pipeline=True)
@@ -96,6 +100,8 @@ class YouTubeUploadAgent(PipelineAgent):
         context: AgentContext,
         manifest_path: Path,
         result_path: Path,
+        *,
+        dry_run: bool = False,
     ) -> None:
         uploader_path = context.settings.youtube_uploader_path.resolve()
         if not uploader_path.exists():
@@ -119,6 +125,8 @@ class YouTubeUploadAgent(PipelineAgent):
             "--timeout-seconds",
             str(context.settings.youtube_upload_timeout_seconds),
         ]
+        if dry_run:
+            command.append("--dry-run")
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=uploader_path,
@@ -155,7 +163,7 @@ class YouTubeUploadAgent(PipelineAgent):
         if not video_id or not url:
             raise RuntimeError("YouTube upload result is missing videoId or youtubeUrl")
 
-        await EpisodeRepository(context.session).create_asset(
+        await context.episode_repo.create_asset(
             {
                 "episode_id": episode_id,
                 "asset_type": "youtube_video",

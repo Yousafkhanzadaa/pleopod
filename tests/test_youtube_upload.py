@@ -169,7 +169,7 @@ async def test_youtube_upload_agent_writes_manifest_result_and_completes_job(
     agent = YouTubeUploadAgent()
     attached: dict[str, object] = {}
 
-    async def _run_uploader(self, context, manifest_path, result_path) -> None:
+    async def _run_uploader(self, context, manifest_path, result_path, dry_run=False) -> None:
         result_path.write_text(
             '{"videoId":"yt-123","youtubeUrl":"https://www.youtube.com/watch?v=yt-123",'
             '"privacyStatus":"private","thumbnailUploaded":true}',

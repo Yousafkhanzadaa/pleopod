@@ -26,7 +26,8 @@ class FakeAIProvider(AIProvider):
         response_schema: object | None = None,
     ) -> TextGeneration:
         lower = prompt.lower()
-        if "orchestration agent" in lower:
+        schema_name = getattr(response_schema, "__name__", "")
+        if schema_name == "OrchestratedJobPayload" or "orchestration agent" in lower:
             orchestration_data: dict[str, Any] = {
                 "topic": "AI Coding Agents in 2026",
                 "category": "Tech",
@@ -37,7 +38,35 @@ class FakeAIProvider(AIProvider):
                 "source_urls": [],
             }
             return TextGeneration(text=json.dumps(orchestration_data))
-        if "research dossier" in lower:
+        if schema_name == "PodcastScript" or "podcast script agent" in lower:
+            script_data: dict[str, Any] = {
+                "title": "The AI Podcast Pipeline",
+                "slug": "the-ai-podcast-pipeline",
+                "summary": "A short conversation about building trustworthy AI-generated podcasts.",
+                "description": "A practical look at research, verification, and audio generation.",
+                "speakers": [
+                    {"name": "Arman", "role": "Host", "voice_name": "Charon"},
+                    {"name": "Maya", "role": "Analyst", "voice_name": "Puck"},
+                ],
+                "transcript": (
+                    "TTS the following conversation between Arman and Maya:\n\n"
+                    "Arman: Welcome back. Today we are looking at how an AI "
+                    "podcast pipeline should work.\n"
+                    "Maya: The key is simple: research first, verify every "
+                    "important claim, then generate audio."
+                ),
+            }
+            return TextGeneration(text=json.dumps(script_data))
+        if schema_name == "VerificationReport" or "fact verification agent" in lower:
+            verification_data: dict[str, Any] = {
+                "verdict": "approved",
+                "score": 0.92,
+                "issues": [],
+                "fixed_transcript": None,
+                "line_checks": [],
+            }
+            return TextGeneration(text=json.dumps(verification_data))
+        if schema_name == "ResearchDossier" or "research dossier" in lower:
             research_data: dict[str, Any] = {
                 "summary": "This is a local fake research dossier for a technology podcast.",
                 "key_points": [
@@ -70,34 +99,6 @@ class FakeAIProvider(AIProvider):
                 ],
             }
             return TextGeneration(text=json.dumps(research_data))
-        if "podcast script" in lower:
-            script_data: dict[str, Any] = {
-                "title": "The AI Podcast Pipeline",
-                "slug": "the-ai-podcast-pipeline",
-                "summary": "A short conversation about building trustworthy AI-generated podcasts.",
-                "description": "A practical look at research, verification, and audio generation.",
-                "speakers": [
-                    {"name": "Arman", "role": "Host", "voice_name": "Charon"},
-                    {"name": "Maya", "role": "Analyst", "voice_name": "Puck"},
-                ],
-                "transcript": (
-                    "TTS the following conversation between Arman and Maya:\n\n"
-                    "Arman: Welcome back. Today we are looking at how an AI "
-                    "podcast pipeline should work.\n"
-                    "Maya: The key is simple: research first, verify every "
-                    "important claim, then generate audio."
-                ),
-            }
-            return TextGeneration(text=json.dumps(script_data))
-        if "verification report" in lower:
-            verification_data: dict[str, Any] = {
-                "verdict": "approved",
-                "score": 0.92,
-                "issues": [],
-                "fixed_transcript": None,
-                "line_checks": [],
-            }
-            return TextGeneration(text=json.dumps(verification_data))
         return TextGeneration(text=json.dumps({"result": "ok"}))
 
     async def generate_image(self, prompt: str, model: str) -> ImageGeneration:
