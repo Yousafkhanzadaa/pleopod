@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.config import Settings
+from app.core.config import PROJECT_ROOT, Settings
 
 
 def test_default_gemini_models_use_low_cost_development_profile(
@@ -37,6 +37,26 @@ def test_default_runtime_is_local_first() -> None:
     assert settings.resolved_queue_backend == "sqlite"
     assert settings.storage_backend == "local"
     assert settings.async_database_url.startswith("sqlite+aiosqlite:///")
+    assert "/local-data/pleopod.db" in settings.async_database_url
+    assert str(PROJECT_ROOT) in settings.async_database_url
+    assert settings.local_storage_path == PROJECT_ROOT / "local-artifacts"
+
+
+def test_relative_runtime_paths_resolve_from_project_root() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        database_url="sqlite+aiosqlite:///./local-data/custom.db",
+        local_storage_path="local-artifacts",
+        remotion_renderer_path="remotion-renderer",
+        youtube_uploader_path="youtube-uploader",
+    )
+
+    assert settings.async_database_url == (
+        f"sqlite+aiosqlite:///{(PROJECT_ROOT / 'local-data/custom.db').as_posix()}"
+    )
+    assert settings.local_storage_path == PROJECT_ROOT / "local-artifacts"
+    assert settings.remotion_renderer_path == PROJECT_ROOT / "remotion-renderer"
+    assert settings.youtube_uploader_path == PROJECT_ROOT / "youtube-uploader"
 
 
 def test_postgres_url_selects_postgres_and_pgmq_when_backend_is_auto() -> None:

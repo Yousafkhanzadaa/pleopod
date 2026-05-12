@@ -7,6 +7,7 @@ from app.agents.youtube_upload import (
     YouTubeUploadAgent,
     build_description,
     build_youtube_manifest,
+    is_successful_upload_result,
 )
 from app.models.enums import ArtifactType
 
@@ -19,7 +20,12 @@ class _Storage:
 
 
 class _ArtifactRepo:
+    def __init__(self, existing_upload_result: dict | None = None) -> None:
+        self.existing_upload_result = existing_upload_result
+
     async def get_latest_for_job(self, job_id: str, artifact_type: str) -> None:
+        if artifact_type == ArtifactType.YOUTUBE_UPLOAD_RESULT_JSON:
+            return self.existing_upload_result
         return None
 
 
@@ -55,12 +61,20 @@ class _JobRepo:
 
 
 class _Context:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        youtube_client_id: str | None = "client-id",
+        youtube_refresh_token: str | None = "refresh-token",
+        existing_upload_result: dict | None = None,
+        latest_upload_result: dict | None = None,
+    ) -> None:
+        self.latest_upload_result = latest_upload_result
         self.settings = SimpleNamespace(
             youtube_uploader_path=Path("youtube-uploader"),
-            youtube_client_id="client-id",
+            youtube_client_id=youtube_client_id,
             youtube_client_secret="client-secret",
-            youtube_refresh_token="refresh-token",
+            youtube_refresh_token=youtube_refresh_token,
             youtube_default_privacy_status="private",
             youtube_default_category_id="28",
             youtube_upload_timeout_seconds=30,
@@ -68,7 +82,7 @@ class _Context:
             youtube_self_declared_made_for_kids=False,
         )
         self.storage = _Storage()
-        self.artifact_repo = _ArtifactRepo()
+        self.artifact_repo = _ArtifactRepo(existing_upload_result)
         self.artifact_service = _ArtifactService()
         self.job_repo = _JobRepo()
         self.session = object()
@@ -76,6 +90,8 @@ class _Context:
     async def latest_json(self, job_id: str, artifact_type: ArtifactType) -> dict:
         if artifact_type == ArtifactType.EPISODE_METADATA_JSON:
             return {"episode": _episode(), "script": _script()}
+        if artifact_type == ArtifactType.YOUTUBE_UPLOAD_RESULT_JSON and self.latest_upload_result:
+            return self.latest_upload_result
         raise AssertionError(f"Unexpected artifact type: {artifact_type}")
 
     async def latest_artifact(self, job_id: str, artifact_type: ArtifactType) -> dict:
@@ -161,6 +177,13 @@ def test_build_description_accepts_schema_claim_strings() -> None:
     assert "Structured claim text still works." in description
 
 
+def test_is_successful_upload_result_requires_youtube_identity() -> None:
+    assert is_successful_upload_result(
+        {"videoId": "yt-123", "youtubeUrl": "https://www.youtube.com/watch?v=yt-123"}
+    )
+    assert not is_successful_upload_result({"ok": True, "manifest": {}})
+
+
 @pytest.mark.asyncio
 async def test_youtube_upload_agent_writes_manifest_result_and_completes_job(
     monkeypatch: pytest.MonkeyPatch,
@@ -199,3 +222,65 @@ async def test_youtube_upload_agent_writes_manifest_result_and_completes_job(
     assert context.job_repo.updated is not None
     assert context.job_repo.updated["status"] == "completed"
     assert context.job_repo.updated["metadata"]["youtube_video_id"] == "yt-123"
+
+
+@pytest.mark.asyncio
+async def test_youtube_upload_dry_run_does_not_require_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _Context(youtube_client_id=None, youtube_refresh_token=None)
+    agent = YouTubeUploadAgent()
+    attached = False
+
+    async def _run_uploader(self, context, manifest_path, result_path, dry_run=False) -> None:
+        assert dry_run is True
+        result_path.write_text('{"ok":true,"manifest":{}}', encoding="utf-8")
+
+    async def _attach_youtube_asset(self, context, episode_id, result) -> None:
+        nonlocal attached
+        attached = True
+
+    monkeypatch.setattr(YouTubeUploadAgent, "_run_uploader", _run_uploader)
+    monkeypatch.setattr(YouTubeUploadAgent, "_attach_youtube_asset", _attach_youtube_asset)
+
+    result = await agent.run(_job(), context, {"dry_run": True})  # type: ignore[arg-type]
+
+    assert result.stop_pipeline is True
+    assert attached is False
+    assert context.job_repo.updated is None
+    assert context.artifact_service.records[1][2] == {"ok": True, "manifest": {}}
+
+
+@pytest.mark.asyncio
+async def test_existing_dry_run_result_does_not_block_real_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _Context(
+        existing_upload_result={"id": "dry-run-result-id"},
+        latest_upload_result={"ok": True, "manifest": {}},
+    )
+    agent = YouTubeUploadAgent()
+    uploaded = False
+
+    async def _run_uploader(self, context, manifest_path, result_path, dry_run=False) -> None:
+        nonlocal uploaded
+        uploaded = True
+        assert dry_run is False
+        result_path.write_text(
+            '{"videoId":"yt-456","youtubeUrl":"https://www.youtube.com/watch?v=yt-456",'
+            '"privacyStatus":"private","thumbnailUploaded":true}',
+            encoding="utf-8",
+        )
+
+    async def _attach_youtube_asset(self, context, episode_id, result) -> None:
+        return None
+
+    monkeypatch.setattr(YouTubeUploadAgent, "_run_uploader", _run_uploader)
+    monkeypatch.setattr(YouTubeUploadAgent, "_attach_youtube_asset", _attach_youtube_asset)
+
+    result = await agent.run(_job(), context, {})  # type: ignore[arg-type]
+
+    assert uploaded is True
+    assert result.output_artifact_id == "youtube_upload_result_json-id"
+    assert context.job_repo.updated is not None
+    assert context.job_repo.updated["metadata"]["youtube_video_id"] == "yt-456"

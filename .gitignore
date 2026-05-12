@@ -71,3 +71,4 @@ supabase/.temp/
 # Docker/local runtime
 .docker/
 docker-data/
+local-data/youtube-tokens.json

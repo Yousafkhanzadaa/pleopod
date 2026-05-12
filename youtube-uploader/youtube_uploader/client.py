@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import secrets
+import ssl
 import tempfile
 import time
 from pathlib import Path
@@ -14,6 +15,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+import certifi
+
 from youtube_uploader.manifest import YouTubeUploadManifest
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -21,6 +24,7 @@ AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 VIDEO_UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos"
 THUMBNAIL_UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
 UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 class YouTubeUploadError(RuntimeError):
@@ -295,6 +299,7 @@ def request(
         with urlopen(
             Request(url, data=body, headers=headers, method=method),
             timeout=timeout_seconds,
+            context=SSL_CONTEXT,
         ) as response:
             status = response.status
             data = response.read()
@@ -348,7 +353,7 @@ class materialized_media:
         fd, temp_name = tempfile.mkstemp(prefix="pleopod-youtube-", suffix=suffix)
         os.close(fd)
         self.temp_path = Path(temp_name)
-        with urlopen(self.url, timeout=120) as response:
+        with urlopen(self.url, timeout=120, context=SSL_CONTEXT) as response:
             self.temp_path.write_bytes(response.read())
         return self.temp_path
 

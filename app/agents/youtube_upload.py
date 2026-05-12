@@ -31,9 +31,13 @@ class YouTubeUploadAgent(PipelineAgent):
         )
         if existing_result and not force and not dry_run:
             result = await context.latest_json(job_id, ArtifactType.YOUTUBE_UPLOAD_RESULT_JSON)
-            await self._attach_youtube_asset(context, episode_id, result)
-            await self._complete_job(context, job, episode_id, result)
-            return AgentResult(output_artifact_id=str(existing_result["id"]), stop_pipeline=True)
+            if is_successful_upload_result(result):
+                await self._attach_youtube_asset(context, episode_id, result)
+                await self._complete_job(context, job, episode_id, result)
+                return AgentResult(
+                    output_artifact_id=str(existing_result["id"]),
+                    stop_pipeline=True,
+                )
 
         episode_metadata = await context.latest_json(job_id, ArtifactType.EPISODE_METADATA_JSON)
         script = episode_metadata.get("script") or {}
@@ -41,7 +45,8 @@ class YouTubeUploadAgent(PipelineAgent):
         video = await context.latest_artifact(job_id, ArtifactType.VIDEO_MP4)
         thumbnail = await context.latest_artifact(job_id, ArtifactType.THUMBNAIL_IMAGE)
 
-        self._validate_settings(context)
+        if not dry_run:
+            self._validate_settings(context)
         with tempfile.TemporaryDirectory(prefix=f"pleopod-youtube-{job_id[:8]}-") as temp_dir:
             temp_path = Path(temp_dir)
             video_path = temp_path / "final.mp4"
@@ -245,6 +250,10 @@ def build_youtube_manifest(
         "thumbnailRequired": False,
         "language": episode.get("language") or job.get("language") or "en",
     }
+
+
+def is_successful_upload_result(result: dict[str, Any]) -> bool:
+    return bool(str(result.get("videoId") or "") and str(result.get("youtubeUrl") or ""))
 
 
 def build_description(episode: dict[str, Any], script: dict[str, Any]) -> str:

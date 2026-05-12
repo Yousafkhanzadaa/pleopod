@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import Field, computed_field
@@ -9,6 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 LOW_COST_GEMINI_TEXT_MODEL = "gemini-2.5-flash-lite"
 LOW_COST_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 LOW_COST_IMAGE_MODEL = "imagen-4.0-fast-generate-001"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SQLITE_ASYNC_PREFIX = "sqlite+aiosqlite:///"
 
 
 class Settings(BaseSettings):
@@ -81,13 +83,20 @@ class Settings(BaseSettings):
     youtube_notify_subscribers: bool = False
     youtube_self_declared_made_for_kids: bool = False
 
+    def model_post_init(self, __context: Any) -> None:
+        self.local_storage_path = resolve_project_path(self.local_storage_path)
+        self.remotion_renderer_path = resolve_project_path(self.remotion_renderer_path)
+        self.youtube_uploader_path = resolve_project_path(self.youtube_uploader_path)
+
     @computed_field  # type: ignore[misc]
     @property
     def async_database_url(self) -> str:
         if self.database_url.startswith("sqlite+aiosqlite://"):
-            return self.database_url
+            return resolve_sqlite_database_url(self.database_url)
         if self.database_url.startswith("sqlite://"):
-            return self.database_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+            return resolve_sqlite_database_url(
+                self.database_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+            )
         if self.database_url.startswith("postgresql+asyncpg://"):
             return self.database_url
         if self.database_url.startswith("postgres://"):
@@ -194,4 +203,23 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(_env_file=(PROJECT_ROOT / ".env", PROJECT_ROOT / ".env.local"))  # type: ignore[call-arg]
+
+
+def resolve_project_path(path: Path) -> Path:
+    expanded = path.expanduser()
+    if expanded.is_absolute():
+        return expanded
+    return PROJECT_ROOT / expanded
+
+
+def resolve_sqlite_database_url(database_url: str) -> str:
+    if not database_url.startswith(SQLITE_ASYNC_PREFIX) or database_url.endswith(":memory:"):
+        return database_url
+
+    sqlite_path = Path(database_url.removeprefix(SQLITE_ASYNC_PREFIX))
+    if sqlite_path.is_absolute():
+        return database_url
+
+    resolved_path = (PROJECT_ROOT / sqlite_path).resolve()
+    return f"{SQLITE_ASYNC_PREFIX}{resolved_path.as_posix()}"
