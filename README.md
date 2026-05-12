@@ -274,6 +274,15 @@ plan for development.
 
 See `docs/remotion-video-system.md` and `remotion-renderer/README.md`.
 
+## Output Example
+
+Here is a sample rendered video output from the pipeline:
+
+<video src="final_demo/demo.mp4" controls width="720"></video>
+
+If your Markdown viewer does not render embedded videos, open
+[`examples/final.mp4`](final_demo/demo.mp4) directly.
+
 ## YouTube Uploads
 
 The optional YouTube uploader lives in `youtube-uploader/` and is intentionally
