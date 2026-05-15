@@ -17,6 +17,7 @@ Official docs used while designing this backend:
 - Gemini grounding with Google Search: https://ai.google.dev/gemini-api/docs/google-search
 - Gemini URL context: https://ai.google.dev/gemini-api/docs/url-context
 - Gemini image generation: https://ai.google.dev/gemini-api/docs/image-generation
+- OpenAI image generation: https://developers.openai.com/api/docs/guides/image-generation
 
 Important doc-backed decisions:
 
@@ -26,8 +27,10 @@ Important doc-backed decisions:
 - The legacy JWT secret is only supported as an explicit migration fallback.
 - Long media-generation work does not live inside hosted Supabase Edge Functions.
 - R2 is used for generated artifacts and published media because it is S3-compatible and avoids egress fees.
-- Gemini 3.1 Flash TTS Preview is treated as the default two-speaker MVP path,
-  chunked for longer episodes, with Gemini 2.5 Flash Preview TTS as a fallback.
+- Gemini 2.5 Flash Preview TTS is treated as the default two-speaker MVP path,
+  using dialogue-aware chunked requests so longer episodes stay inside Gemini TTS
+  output limits. Gemini 3.1 Flash TTS Preview can be evaluated as a higher-quality
+  upgrade.
 - Gemini 2.5 Flash Lite is used for the title orchestration step before job creation.
 - Gemini structured outputs are used where the configured model/tool combination supports them.
 - Gemini Google Search grounding and URL context are used by the research layer, with
@@ -48,7 +51,7 @@ Supabase Postgres + PGMQ
     |
 Worker
     |
-Gemini/Search/TTS/Image APIs
+Gemini/Search/TTS + OpenAI Image APIs
     |
 Remotion Renderer (optional video)
     |

@@ -67,7 +67,8 @@ publish -> video_render -> youtube_upload
 - **SQLite locally** or **Supabase Postgres** for metadata, jobs, artifacts, and episodes
 - **SQLite locally** or **Supabase Queues / PGMQ** for durable worker messages
 - **Local filesystem storage** or **Cloudflare R2** for generated assets
-- **Google Gemini API** for orchestration, research, scripts, verification, Imagen thumbnails, and TTS
+- **Google Gemini API** for orchestration, research, scripts, verification, and TTS
+- **OpenAI GPT Image** for generated podcast thumbnails
 - **Remotion** for optional deterministic video rendering
 - **YouTube Data API v3** for optional video upload
 
@@ -99,7 +100,8 @@ youtube-uploader/      Standalone YouTube upload CLI
   you want the production adapter.
 - Supabase CLI for applying migrations when using Supabase/Postgres.
 - Node.js and npm if you want Remotion video rendering
-- Gemini API access if you want real AI generation
+- Gemini API access if you want real text generation and TTS
+- OpenAI API access if you want GPT Image thumbnails
 - Cloudflare R2 credentials if you want production-style object storage
 - Google Cloud OAuth credentials if you want YouTube uploads
 
@@ -157,7 +159,7 @@ curl -X POST http://localhost:8000/admin/generation-jobs \
   -H "content-type: application/json" \
   -H "x-admin-api-key: $ADMIN_API_KEY" \
   -d '{
-    "title": "What developers need to know about AI agents in 2026",
+    "title": "What is openclaw?",
     "category": "Tech",
     "target_duration_seconds": 300,
     "auto_publish": false
@@ -206,6 +208,10 @@ Most settings are documented in `.env.example`. The most important groups are:
 | `R2_*` | Cloudflare R2 credentials and bucket config. |
 | `AI_PROVIDER` | `fake` or `gemini`. |
 | `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini`. |
+| `THUMBNAIL_IMAGE_PROVIDER` | `auto`, `fake`, `gemini`, or `openai`. `auto` uses fake thumbnails in fake mode and OpenAI otherwise. |
+| `OPENAI_API_KEY` | Required when thumbnail generation resolves to OpenAI. |
+| `OPENAI_IMAGE_MODEL` | Defaults to `gpt-image-2` for generated thumbnails. |
+| `TTS_GENERATION_MODE` | `chunked` for safer Gemini TTS calls, or `single_request` for short episodes only. |
 | `MAX_AGENT_ATTEMPTS` | Retry budget for failed queue messages. |
 | `QUEUE_VISIBILITY_TIMEOUT_SECONDS` | Visibility timeout for long-running jobs. |
 | `ENABLE_VIDEO_RENDERING` | Enables Remotion MP4 generation after publishing. |
@@ -513,3 +519,28 @@ pip install -e ".[dev]"
 No license file is included yet. Before publishing this repository as open
 source, add a license such as MIT, Apache-2.0, or AGPL-3.0 depending on how you
 want others to use and redistribute the project.
+
+
+
+
+curl -X POST http://localhost:8000/admin/generation-jobs \
+  -H "content-type: application/json" \
+  -H "x-admin-api-key: replace-with-a-long-random-secret" \
+  -d '{
+    "title": "Donald Trump lands in China for high-stakes meeting with Xi Jinping - 13 May 2026",
+    "category": "Politics",
+    "target_duration_seconds": 240,
+    "auto_publish": true
+  }'
+
+
+
+JOB_ID="paste-job-id-here"
+
+pleopod-stage run research "$JOB_ID"
+pleopod-stage run script "$JOB_ID"
+pleopod-stage run fact_check "$JOB_ID"
+pleopod-stage run thumbnail "$JOB_ID"
+pleopod-stage run audio_config "$JOB_ID"
+pleopod-stage run audio_generation "$JOB_ID"
+pleopod-stage run publish "$JOB_ID"

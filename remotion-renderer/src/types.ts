@@ -82,13 +82,13 @@ export const defaultPodcastVideoProps: PodcastVideoProps = {
       name: 'Arman',
       role: 'Host',
       voiceName: 'Charon',
-      style: 'clear, warm',
+      style: 'clear, warm, informed',
     },
     {
       name: 'Maya',
       role: 'Analyst',
-      voiceName: 'Puck',
-      style: 'curious, energetic',
+      voiceName: 'Aoede',
+      style: 'breezy, curious, conversational',
     },
   ],
   transcript:

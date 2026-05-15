@@ -141,7 +141,7 @@ def _script() -> dict:
         "description": "Long description",
         "speakers": [
             {"name": "Arman", "role": "Host", "voice_name": "Charon", "style": "warm"},
-            {"name": "Maya", "role": "Analyst", "voice_name": "Puck", "style": "curious"},
+            {"name": "Maya", "role": "Analyst", "voice_name": "Aoede", "style": "curious"},
         ],
         "transcript": "Arman: Welcome.\nMaya: Let's unpack it.",
     }

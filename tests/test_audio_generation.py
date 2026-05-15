@@ -1,6 +1,12 @@
+from types import SimpleNamespace
+
 import pytest
 
-from app.agents.audio_generation import AudioGenerationAgent, tts_config_fingerprint
+from app.agents.audio_generation import (
+    AudioGenerationAgent,
+    tts_config_fingerprint,
+    tts_segment_fingerprint,
+)
 from app.agents.publisher import duration_seconds_from_artifact
 from app.models.enums import ArtifactType
 from app.providers.ai import AudioGeneration
@@ -20,6 +26,10 @@ class _Context:
     def __init__(self, config: dict, final_audio: dict | None) -> None:
         self.config = config
         self.artifact_repo = _ArtifactRepo(final_audio)
+        self.settings = SimpleNamespace(
+            tts_generation_mode=config.get("generation_mode") or "chunked",
+            ai_provider="fake",
+        )
 
     async def latest_json(self, job_id: str, artifact_type: str) -> dict:
         assert artifact_type == ArtifactType.TTS_CONFIG_JSON
@@ -51,8 +61,10 @@ async def test_audio_generation_regenerates_stale_final_and_changed_segment() ->
 
     assert result.output_artifact_id == "final-audio-id"
     assert context.ai.prompts == ["Arman: Current line."]
-    assert context.segment_repo.reuse_attempts == [(1, "Arman: Current line.")]
+    expected_segment_fingerprint = tts_segment_fingerprint(config, config["chunks"][0])
+    assert context.segment_repo.reuse_attempts == [(1, expected_segment_fingerprint)]
     assert context.segment_repo.upserts[-1]["status"] == "completed"
+    assert context.segment_repo.upserts[-1]["transcript"] == expected_segment_fingerprint
     assert context.artifact_service.final_metadata["segment_count"] == 1
     assert context.artifact_service.final_metadata[
         "tts_config_fingerprint"
@@ -72,6 +84,7 @@ def _config(source_transcript: str) -> dict:
     return {
         "tts_model": "fake-tts",
         "export_format": "wav",
+        "generation_mode": "single_request",
         "max_source_chunk_chars": 1200,
         "speakers": [{"speaker": "Arman", "voice_name": "Charon", "style": "warm"}],
         "chunks": [

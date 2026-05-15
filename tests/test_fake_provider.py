@@ -12,7 +12,7 @@ async def test_fake_provider_generates_audio() -> None:
     audio = await provider.generate_tts(
         "TTS the following conversation between Arman and Maya:\n\nArman: Hello\nMaya: Hi",
         "fake-tts",
-        [SpeakerVoice("Arman", "Charon"), SpeakerVoice("Maya", "Puck")],
+        [SpeakerVoice("Arman", "Charon"), SpeakerVoice("Maya", "Aoede")],
     )
     assert audio.sample_rate == 24000
     assert len(audio.pcm_data) > 0

@@ -46,14 +46,28 @@ class FakeAIProvider(AIProvider):
                 "description": "A practical look at research, verification, and audio generation.",
                 "speakers": [
                     {"name": "Arman", "role": "Host", "voice_name": "Charon"},
-                    {"name": "Maya", "role": "Analyst", "voice_name": "Puck"},
+                    {"name": "Maya", "role": "Analyst", "voice_name": "Aoede"},
                 ],
                 "transcript": (
                     "TTS the following conversation between Arman and Maya:\n\n"
-                    "Arman: Welcome back. Today we are looking at how an AI "
-                    "podcast pipeline should work.\n"
-                    "Maya: The key is simple: research first, verify every "
-                    "important claim, then generate audio."
+                    "Arman: Welcome back. Today we are looking at how an AI podcast pipeline "
+                    "should work.\n"
+                    "Maya: The key is simple: research first, verify every important claim, "
+                    "then generate audio.\n"
+                    "Arman: That gives the workflow a real spine instead of a pile of prompts.\n"
+                    "Maya: And each stage leaves an artifact, so builders can inspect what "
+                    "happened.\n"
+                    "Arman: Research produces sources and claims, script turns those claims "
+                    "into conversation, and verification checks the facts.\n"
+                    "Maya: Audio and video should only run after those earlier outputs are "
+                    "complete.\n"
+                    "Arman: That is why stage-by-stage testing matters so much for quality.\n"
+                    "Maya: You can perfect research, then script, then audio, without guessing "
+                    "where the issue came from.\n"
+                    "Arman: Once the pieces are solid, the worker can connect them into the "
+                    "full publishing flow.\n"
+                    "Maya: That wraps it up: small reliable stages, then one dependable "
+                    "pipeline."
                 ),
             }
             return TextGeneration(text=json.dumps(script_data))
@@ -75,8 +89,8 @@ class FakeAIProvider(AIProvider):
                 ],
                 "sources": [
                     {
-                        "url": "https://example.com/source",
-                        "title": "Example Source",
+                        "url": f"https://example.com/source-{index}",
+                        "title": f"Example Source {index}",
                         "publisher": "Example",
                         "author": None,
                         "published_at": None,
@@ -84,18 +98,17 @@ class FakeAIProvider(AIProvider):
                         "credibility_score": 0.65,
                         "notes": "Fake local source.",
                     }
+                    for index in range(1, 6)
                 ],
                 "claims": [
                     {
-                        "claim_text": (
-                            "AI podcast pipelines should verify factual claims "
-                            "before audio generation."
-                        ),
-                        "source_urls": ["https://example.com/source"],
+                        "claim_text": f"Fake supported research claim {index}.",
+                        "source_urls": [f"https://example.com/source-{((index - 1) % 5) + 1}"],
                         "verification_status": "supported",
                         "confidence": 0.8,
                         "notes": "Fake claim for local development.",
                     }
+                    for index in range(1, 9)
                 ],
             }
             return TextGeneration(text=json.dumps(research_data))

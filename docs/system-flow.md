@@ -255,10 +255,12 @@ It decides:
 - voice names
 - TTS model
 - export format
-- chunk boundaries
+- TTS generation mode
 
-Chunking matters because long TTS generation can become unstable. The backend
-splits the transcript into smaller sections before audio generation.
+The default mode splits the episode into dialogue-aware TTS segments so longer
+episodes stay within Gemini output limits while keeping the same Arman and Maya
+voice assignments across every segment. A single-request mode is still available
+for short episodes when explicitly configured.
 
 It outputs:
 
@@ -272,7 +274,7 @@ Example speaker config:
 {
   "speakers": [
     { "speaker": "Arman", "voice_name": "Charon" },
-    { "speaker": "Maya", "voice_name": "Puck" }
+    { "speaker": "Maya", "voice_name": "Aoede" }
   ]
 }
 ```
@@ -281,9 +283,9 @@ Example speaker config:
 
 The Audio Generation Agent reads `tts_config.json`.
 
-For each transcript chunk, it:
+For each configured TTS segment, it:
 
-- sends the chunk to Gemini TTS
+- sends the segment to Gemini TTS
 - receives raw audio
 - stores the audio segment
 - records segment status in `tts_segments`

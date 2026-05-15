@@ -41,9 +41,20 @@ def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, An
     transcript = normalize_tts_transcript(script["transcript"])
     if not transcript:
         raise ValueError("Verified script transcript is empty")
-    max_chunk_chars = min(settings.max_tts_chunk_chars, GEMINI_TTS_SAFE_SOURCE_CHARS)
+
+    generation_mode = settings.tts_generation_mode
+    max_chunk_chars = (
+        len(transcript)
+        if generation_mode == "single_request"
+        else min(settings.max_tts_chunk_chars, GEMINI_TTS_SAFE_SOURCE_CHARS)
+    )
     chunks = []
-    for index, chunk in enumerate(chunk_dialogue(transcript, max_chunk_chars), start=1):
+    transcript_chunks = (
+        [transcript]
+        if generation_mode == "single_request"
+        else chunk_dialogue(transcript, max_chunk_chars)
+    )
+    for index, chunk in enumerate(transcript_chunks, start=1):
         prompt = build_tts_prompt(chunk, speakers)
         chunks.append(
             {
@@ -54,12 +65,18 @@ def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, An
                 "prompt_char_count": len(prompt),
             }
         )
+    max_prompt_chars = (
+        max(chunk["prompt_char_count"] for chunk in chunks)
+        if generation_mode == "single_request"
+        else GEMINI_TTS_SAFE_PROMPT_CHARS
+    )
 
     return {
         "tts_model": settings.gemini_tts_model,
         "export_format": settings.audio_export_format,
+        "generation_mode": generation_mode,
         "max_source_chunk_chars": max_chunk_chars,
-        "max_prompt_chars": GEMINI_TTS_SAFE_PROMPT_CHARS,
+        "max_prompt_chars": max_prompt_chars,
         "speakers": [
             {
                 "speaker": speaker["name"],
@@ -72,11 +89,23 @@ def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, An
     }
 
 
-def tts_config_needs_rebuild(config: dict[str, Any]) -> bool:
+def tts_config_needs_rebuild(
+    config: dict[str, Any],
+    settings: Settings | None = None,
+) -> bool:
     chunks = config.get("chunks") or []
     if not chunks:
         return True
-    if int(config.get("max_source_chunk_chars") or 10**9) > GEMINI_TTS_SAFE_SOURCE_CHARS:
+    generation_mode = config.get("generation_mode")
+    if generation_mode not in {"single_request", "chunked"}:
+        return True
+    if settings and generation_mode != settings.tts_generation_mode:
+        return True
+    if generation_mode == "single_request" and len(chunks) != 1:
+        return True
+    if generation_mode == "chunked" and int(
+        config.get("max_source_chunk_chars") or 10**9
+    ) > GEMINI_TTS_SAFE_SOURCE_CHARS:
         return True
     speakers = config.get("speakers") or []
     if not speakers or len(speakers) > 2:
@@ -88,7 +117,7 @@ def tts_config_needs_rebuild(config: dict[str, Any]) -> bool:
     for chunk in chunks:
         transcript = chunk.get("transcript") or ""
         prompt_char_count = int(chunk.get("prompt_char_count") or len(transcript))
-        if prompt_char_count > GEMINI_TTS_SAFE_PROMPT_CHARS:
+        if generation_mode == "chunked" and prompt_char_count > GEMINI_TTS_SAFE_PROMPT_CHARS:
             return True
         if "### DIRECTOR'S NOTES" in transcript:
             return True
@@ -112,7 +141,13 @@ def source_transcript_from_tts_prompt(prompt: str) -> str:
 def build_tts_prompt(transcript_chunk: str, speakers: list[dict[str, Any]]) -> str:
     speaker_names = " and ".join(speaker["name"] for speaker in speakers)
     style_instruction = speaker_style_instruction(speakers)
-    preamble = f"{style_instruction}\n\n" if style_instruction else ""
+    continuity_instruction = (
+        "Keep each speaker's voice identity, pacing, and tone consistent across "
+        "all segments of this episode."
+    )
+    instructions = [item for item in (style_instruction, continuity_instruction) if item]
+    instruction_text = "\n".join(instructions)
+    preamble = f"{instruction_text}\n\n" if instruction_text else ""
     return f"""
 {preamble}TTS the following conversation between {speaker_names}:
 

@@ -13,7 +13,8 @@ from app.db.queue import QueueRepository
 from app.db.repositories import JobRepository
 from app.db.session import dispose_engine, get_sessionmaker, initialize_database
 from app.models.enums import AgentStatus, JobStatus, PipelineStep
-from app.providers.factory import create_ai_provider
+from app.providers.ai import AIProvider
+from app.providers.factory import create_ai_provider, create_thumbnail_image_provider
 from app.providers.storage import create_storage
 from app.worker.pipeline import AGENTS, QUEUE_TO_STEP, STEP_TO_QUEUE, next_steps_for_result
 
@@ -76,6 +77,7 @@ class PipelineWorker:
         self.settings = settings
         self.storage = create_storage(settings)
         self.ai = create_ai_provider(settings)
+        self._thumbnail_image_ai: AIProvider | None = None
         self.sessionmaker = get_sessionmaker(settings)
         self.running = True
         self.queue_names = active_queue_names(settings)
@@ -171,17 +173,18 @@ class PipelineWorker:
                 step=step,
                 model=getattr(agent, "model_name", None),
             )
-            context = AgentContext(
-                settings=self.settings,
-                session=session,
-                storage=self.storage,
-                ai=self.ai,
-            )
             heartbeat_stop = asyncio.Event()
             heartbeat_task = asyncio.create_task(
                 self._heartbeat_message(queue_name, msg_id, heartbeat_stop)
             )
             try:
+                context = AgentContext(
+                    settings=self.settings,
+                    session=session,
+                    storage=self.storage,
+                    ai=self.ai,
+                    image_ai=self._image_provider_for_step(step),
+                )
                 result = await agent.run(job, context, message)
             except Exception as exc:  # noqa: BLE001
                 await self._stop_heartbeat(heartbeat_stop, heartbeat_task, queue_name, msg_id)
@@ -219,6 +222,16 @@ class PipelineWorker:
                             "attempt": 1,
                         },
                     )
+
+    def _image_provider_for_step(self, step: PipelineStep) -> AIProvider | None:
+        if step != PipelineStep.THUMBNAIL:
+            return None
+        if self._thumbnail_image_ai is None:
+            self._thumbnail_image_ai = create_thumbnail_image_provider(
+                self.settings,
+                default_provider=self.ai,
+            )
+        return self._thumbnail_image_ai
 
     async def _stop_heartbeat(
         self,

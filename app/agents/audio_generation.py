@@ -35,7 +35,7 @@ class AudioGenerationAgent(PipelineAgent):
         force = bool(message.get("force"))
 
         config = await context.latest_json(job_id, ArtifactType.TTS_CONFIG_JSON)
-        if tts_config_needs_rebuild(config):
+        if tts_config_needs_rebuild(config, context.settings):
             script = await context.latest_json(job_id, ArtifactType.VERIFIED_SCRIPT_JSON)
             config = build_tts_config(script, context.settings)
             await context.artifact_service.put_json(
@@ -72,13 +72,19 @@ class AudioGenerationAgent(PipelineAgent):
         for chunk in config["chunks"]:
             index = int(chunk["index"])
             transcript = chunk["transcript"]
+            segment_fingerprint = tts_segment_fingerprint(config, chunk)
             source_transcript = chunk.get("source_transcript") or source_transcript_from_tts_prompt(
                 transcript
             )
             existing_segment = (
                 None
                 if force
-                else await self._get_completed_segment_audio(context, job_id, index, transcript)
+                else await self._get_completed_segment_audio(
+                    context,
+                    job_id,
+                    index,
+                    segment_fingerprint,
+                )
             )
             if existing_segment is not None:
                 logger.info(
@@ -91,12 +97,17 @@ class AudioGenerationAgent(PipelineAgent):
                 continue
 
             logger.info(
-                "Generating TTS chunk %s/%s for job %s",
+                "Generating TTS segment %s/%s for job %s",
                 index,
                 chunk_count,
                 job_id,
             )
-            await context.tts_segment_repo.upsert_segment(job_id, index, transcript, "running")
+            await context.tts_segment_repo.upsert_segment(
+                job_id,
+                index,
+                segment_fingerprint,
+                "running",
+            )
             audio = await context.ai.generate_tts(
                 prompt=transcript,
                 model=config["tts_model"],
@@ -111,10 +122,17 @@ class AudioGenerationAgent(PipelineAgent):
                 ArtifactType.AUDIO_SEGMENT,
                 "audio/wav",
                 job_id=job_id,
-                metadata={"segment_index": index},
+                metadata={
+                    "segment_index": index,
+                    "tts_segment_fingerprint": segment_fingerprint,
+                },
             )
             await context.tts_segment_repo.upsert_segment(
-                job_id, index, transcript, "completed", r2_key=segment_key
+                job_id,
+                index,
+                segment_fingerprint,
+                "completed",
+                r2_key=segment_key,
             )
             segment_duration_seconds = audio_duration_seconds(audio_segments[-1])
             segment_end_seconds = segment_start_seconds + segment_duration_seconds
@@ -166,9 +184,13 @@ class AudioGenerationAgent(PipelineAgent):
         context: AgentContext,
         job_id: str,
         index: int,
-        transcript: str,
+        segment_fingerprint: str,
     ) -> AudioGeneration | None:
-        r2_key = await context.tts_segment_repo.get_completed_segment_key(job_id, index, transcript)
+        r2_key = await context.tts_segment_repo.get_completed_segment_key(
+            job_id,
+            index,
+            segment_fingerprint,
+        )
         if not r2_key:
             return None
 
@@ -188,11 +210,22 @@ def tts_config_fingerprint(config: dict[str, Any]) -> str:
     payload = {
         "tts_model": config.get("tts_model"),
         "export_format": config.get("export_format"),
+        "generation_mode": config.get("generation_mode"),
         "speakers": config.get("speakers") or [],
         "chunks": [
             {"index": int(chunk["index"]), "transcript": str(chunk.get("transcript") or "")}
             for chunk in config.get("chunks") or []
         ],
+    }
+    data = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def tts_segment_fingerprint(config: dict[str, Any], chunk: dict[str, Any]) -> str:
+    payload = {
+        "tts_model": config.get("tts_model"),
+        "speakers": config.get("speakers") or [],
+        "transcript": str(chunk.get("transcript") or ""),
     }
     data = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(data.encode("utf-8")).hexdigest()

@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 LOW_COST_GEMINI_TEXT_MODEL = "gemini-2.5-flash-lite"
 LOW_COST_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 LOW_COST_IMAGE_MODEL = "imagen-4.0-fast-generate-001"
+OPENAI_IMAGE_MODEL = "gpt-image-2"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SQLITE_ASYNC_PREFIX = "sqlite+aiosqlite:///"
 
@@ -55,6 +56,12 @@ class Settings(BaseSettings):
     gemini_tts_model: str = LOW_COST_GEMINI_TTS_MODEL
     gemini_tts_fallback_model: str | None = LOW_COST_GEMINI_TTS_MODEL
     gemini_image_model: str = LOW_COST_IMAGE_MODEL
+    thumbnail_image_provider: Literal["auto", "fake", "gemini", "openai"] = "auto"
+    openai_api_key: str | None = None
+    openai_image_model: str = OPENAI_IMAGE_MODEL
+    openai_image_size: str = "1280x720"
+    openai_image_quality: Literal["low", "medium", "high", "auto"] = "medium"
+    openai_image_output_format: Literal["png", "jpeg", "webp"] = "png"
 
     default_category: str = "Tech"
     require_human_approval: bool = False
@@ -64,6 +71,7 @@ class Settings(BaseSettings):
     audio_export_format: Literal["mp3", "wav"] = "mp3"
 
     worker_sleep_seconds: float = 1.0
+    tts_generation_mode: Literal["single_request", "chunked"] = "chunked"
     max_tts_chunk_chars: int = 1200
 
     enable_video_rendering: bool = False
@@ -139,6 +147,23 @@ class Settings(BaseSettings):
     def is_local(self) -> bool:
         return self.environment == "local"
 
+    @property
+    def resolved_thumbnail_image_provider(self) -> Literal["fake", "gemini", "openai"]:
+        if self.thumbnail_image_provider != "auto":
+            return self.thumbnail_image_provider
+        if self.ai_provider == "fake":
+            return "fake"
+        return "openai"
+
+    @property
+    def resolved_thumbnail_image_model(self) -> str:
+        provider = self.resolved_thumbnail_image_provider
+        if provider == "openai":
+            return self.openai_image_model
+        if provider == "fake":
+            return "fake-image"
+        return self.gemini_image_model
+
     def validate_storage(self) -> None:
         if self.storage_backend != "r2":
             return
@@ -158,6 +183,17 @@ class Settings(BaseSettings):
     def validate_ai(self) -> None:
         if self.ai_provider == "gemini" and not self.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY is required when AI_PROVIDER=gemini")
+
+    def validate_thumbnail_image(self) -> None:
+        provider = self.resolved_thumbnail_image_provider
+        if provider == "gemini" and not self.gemini_api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY is required when THUMBNAIL_IMAGE_PROVIDER=gemini"
+            )
+        if provider == "openai" and not self.openai_api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is required when THUMBNAIL_IMAGE_PROVIDER resolves to openai"
+            )
 
     def validate_database_url(self) -> None:
         if self.database_url.startswith("DATABASE_URL="):

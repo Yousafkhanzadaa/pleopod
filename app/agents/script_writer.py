@@ -16,6 +16,37 @@ _TTS_PREAMBLE_RE = re.compile(
 _SPEAKER_LINE_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(?P<label>.+?)\s*(?P<sep>:| - | – | — )\s*(?P<body>.+?)\s*$"
 )
+_CANONICAL_TURN_RE = re.compile(
+    r"^\s*(?P<speaker>[A-Za-z][\w .'-]{0,64}):\s*(?P<body>.+?)\s*$"
+)
+_COMPLETE_SENTENCE_END_RE = re.compile(r"""[.!?][\"')\]]*$""")
+_INCOMPLETE_END_WORDS = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "because",
+    "but",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "its",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "their",
+    "this",
+    "through",
+    "to",
+    "where",
+    "while",
+    "with",
+}
 
 
 class ScriptWriterAgent(PipelineAgent):
@@ -36,11 +67,11 @@ class ScriptWriterAgent(PipelineAgent):
         script = parse_model_json(response.text, PodcastScript)
         script = self._normalize_script(script)
         try:
-            self._validate_script(script)
+            self._validate_script(script, job)
         except ValueError as exc:
             script = await self._repair_script(context, script, str(exc))
             script = self._normalize_script(script)
-            self._validate_script(script)
+            self._validate_script(script, job)
             script.setdefault("metadata", {})["script_repaired_after_validation_error"] = True
         await context.artifact_service.put_text(
             f"jobs/{job_id}/scripts/script_v1.md",
@@ -155,7 +186,7 @@ class ScriptWriterAgent(PipelineAgent):
     def _normalize_label_token(self, label: str) -> str:
         return re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
 
-    def _validate_script(self, script: dict[str, Any]) -> None:
+    def _validate_script(self, script: dict[str, Any], job: dict[str, Any] | None = None) -> None:
         speakers = script.get("speakers") or []
         if len(speakers) != 2:
             raise ValueError("Gemini multi-speaker TTS MVP requires exactly two speakers")
@@ -170,3 +201,56 @@ class ScriptWriterAgent(PipelineAgent):
         ]
         if missing:
             raise ValueError(f"Transcript missing speaker labels: {', '.join(missing)}")
+
+        turns = canonical_dialogue_turns(transcript)
+        min_turns = minimum_turn_count(job)
+        if len(turns) < min_turns:
+            raise ValueError(
+                f"Transcript is too short: expected at least {min_turns} speaker turns, "
+                f"got {len(turns)}"
+            )
+
+        if turns and not spoken_line_is_complete(turns[-1]["body"]):
+            raise ValueError(
+                "Transcript appears truncated: the final spoken line is not a complete sentence"
+            )
+
+
+def minimum_turn_count(job: dict[str, Any] | None = None) -> int:
+    if not job:
+        return 2
+    try:
+        target_duration = int(job.get("target_duration_seconds") or 0)
+    except (TypeError, ValueError):
+        target_duration = 0
+    if target_duration <= 0:
+        return 4
+    return min(10, max(4, target_duration // 45))
+
+
+def canonical_dialogue_turns(transcript: str) -> list[dict[str, str]]:
+    body = _TTS_PREAMBLE_RE.sub("", transcript.strip(), count=1).strip()
+    turns: list[dict[str, str]] = []
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = _CANONICAL_TURN_RE.match(line)
+        if match:
+            turns.append(
+                {
+                    "speaker": match.group("speaker"),
+                    "body": match.group("body").strip(),
+                }
+            )
+    return turns
+
+
+def spoken_line_is_complete(line: str) -> bool:
+    cleaned = line.strip()
+    if not cleaned:
+        return False
+    words = re.findall(r"[A-Za-z']+", cleaned.lower())
+    if words and words[-1] in _INCOMPLETE_END_WORDS:
+        return False
+    return bool(_COMPLETE_SENTENCE_END_RE.search(cleaned))

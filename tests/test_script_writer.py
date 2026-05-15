@@ -10,8 +10,24 @@ from app.models.enums import ArtifactType
 def _speakers() -> list[dict]:
     return [
         {"name": "Arman", "role": "Host", "voice_name": "Charon"},
-        {"name": "Maya", "role": "Analyst", "voice_name": "Puck"},
+        {"name": "Maya", "role": "Analyst", "voice_name": "Aoede"},
     ]
+
+
+def _complete_transcript() -> str:
+    return (
+        "TTS the following conversation between Arman and Maya:\n\n"
+        "Arman: Welcome back.\n"
+        "Maya: Let's unpack the story.\n"
+        "Arman: The first point is grounded in the research.\n"
+        "Maya: The second point adds the practical context.\n"
+        "Arman: That gives listeners a clear path through the topic.\n"
+        "Maya: It also keeps the episode from becoming a list of facts.\n"
+        "Arman: Exactly, the best version is accurate and conversational.\n"
+        "Maya: And it should end cleanly instead of stopping mid-thought.\n"
+        "Arman: That is the key lesson for this episode.\n"
+        "Maya: Thanks, Arman. That wraps up our discussion."
+    )
 
 
 def test_normalize_script_rewrites_common_speaker_label_variants() -> None:
@@ -120,11 +136,7 @@ async def test_script_writer_repairs_invalid_script_before_failing_worker_retrie
                 "summary": "Summary",
                 "description": "Description",
                 "speakers": _speakers(),
-                "transcript": (
-                    "TTS the following conversation between Arman and Maya:\n\n"
-                    "Arman: Welcome back.\n"
-                    "Maya: Let me walk through the whole thing myself."
-                ),
+                "transcript": _complete_transcript(),
                 "used_claims": [],
             },
         ]
@@ -146,3 +158,54 @@ async def test_script_writer_repairs_invalid_script_before_failing_worker_retrie
     assert result.output_artifact_id == "json-artifact-id"
     assert len(context.ai.calls) == 2
     assert "failed backend validation" in context.ai.calls[1]
+
+
+@pytest.mark.asyncio
+async def test_script_writer_repairs_truncated_final_line() -> None:
+    agent = ScriptWriterAgent()
+    context = _Context(
+        [
+            {
+                "title": "Test Episode",
+                "slug": "test-episode",
+                "summary": "Summary",
+                "description": "Description",
+                "speakers": _speakers(),
+                "transcript": (
+                    "TTS the following conversation between Arman and Maya:\n\n"
+                    "Arman: Welcome back.\n"
+                    "Maya: Let's unpack the story.\n"
+                    "Arman: The research gives us a useful baseline.\n"
+                    "Maya: And the operational details are especially important.\n"
+                    "Arman: That’s where its"
+                ),
+                "used_claims": [],
+            },
+            {
+                "title": "Test Episode",
+                "slug": "test-episode",
+                "summary": "Summary",
+                "description": "Description",
+                "speakers": _speakers(),
+                "transcript": _complete_transcript(),
+                "used_claims": [],
+            },
+        ]
+    )
+
+    result = await agent.run(
+        {
+            "id": "job-1",
+            "topic": "AI Agents",
+            "audience": "Developers",
+            "target_duration_seconds": 120,
+            "language": "en",
+            "tone": "clear, smart, conversational",
+        },
+        context,
+        {},
+    )
+
+    assert result.output_artifact_id == "json-artifact-id"
+    assert len(context.ai.calls) == 2
+    assert "final spoken line is not a complete sentence" in context.ai.calls[1]

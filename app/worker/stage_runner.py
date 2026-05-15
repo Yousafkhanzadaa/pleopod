@@ -15,7 +15,7 @@ from app.db.queue import QueueRepository
 from app.db.repositories import ArtifactRepository, JobRepository
 from app.db.session import dispose_engine, get_sessionmaker, initialize_database
 from app.models.enums import AgentStatus, PipelineStep
-from app.providers.factory import create_ai_provider
+from app.providers.factory import create_ai_provider, create_thumbnail_image_provider
 from app.providers.storage import create_storage
 from app.worker.pipeline import AGENT_CONTRACTS, AGENTS, STEP_TO_QUEUE, next_steps_for_result
 
@@ -141,6 +141,11 @@ async def run_stage(
     sessionmaker = get_sessionmaker(settings)
     storage = create_storage(settings)
     ai = create_ai_provider(settings)
+    image_ai = (
+        create_thumbnail_image_provider(settings, default_provider=ai)
+        if step == PipelineStep.THUMBNAIL
+        else None
+    )
     agent = AGENTS[step]
     message = dict(message or {})
     message.setdefault("job_id", job_id)
@@ -167,7 +172,13 @@ async def run_stage(
             step=step,
             model=getattr(agent, "model_name", None),
         )
-        context = AgentContext(settings=settings, session=session, storage=storage, ai=ai)
+        context = AgentContext(
+            settings=settings,
+            session=session,
+            storage=storage,
+            ai=ai,
+            image_ai=image_ai,
+        )
         try:
             result = await agent.run(job, context, message)
         except Exception as exc:

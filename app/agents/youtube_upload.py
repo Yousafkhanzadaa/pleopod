@@ -11,6 +11,10 @@ from typing import Any
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.models.enums import ArtifactType, JobStatus, PipelineStep
 
+MAX_YOUTUBE_DESCRIPTION_BYTES = 5000
+MAX_REFERENCED_CLAIMS = 8
+MAX_SOURCE_LINE_CHARS = 260
+
 
 class YouTubeUploadAgent(PipelineAgent):
     name = "youtube_upload_agent"
@@ -42,6 +46,7 @@ class YouTubeUploadAgent(PipelineAgent):
         episode_metadata = await context.latest_json(job_id, ArtifactType.EPISODE_METADATA_JSON)
         script = episode_metadata.get("script") or {}
         episode = episode_metadata.get("episode") or {}
+        sources = await latest_source_list(context, job_id)
         video = await context.latest_artifact(job_id, ArtifactType.VIDEO_MP4)
         thumbnail = await context.latest_artifact(job_id, ArtifactType.THUMBNAIL_IMAGE)
 
@@ -61,6 +66,7 @@ class YouTubeUploadAgent(PipelineAgent):
                 job=job,
                 episode=episode,
                 script=script,
+                sources=sources,
                 video_path=video_path,
                 thumbnail_path=thumbnail_path,
                 context=context,
@@ -228,9 +234,10 @@ def build_youtube_manifest(
     video_path: Path,
     thumbnail_path: Path,
     context: AgentContext,
+    sources: Any | None = None,
 ) -> dict[str, Any]:
     title = clean_title(episode.get("title") or script.get("title") or job["topic"])
-    description = build_description(episode, script)
+    description = build_description(episode, script, sources)
     tags = build_tags(job, episode, script)
 
     return {
@@ -256,7 +263,19 @@ def is_successful_upload_result(result: dict[str, Any]) -> bool:
     return bool(str(result.get("videoId") or "") and str(result.get("youtubeUrl") or ""))
 
 
-def build_description(episode: dict[str, Any], script: dict[str, Any]) -> str:
+async def latest_source_list(context: AgentContext, job_id: str) -> list[Any]:
+    try:
+        sources = await context.latest_json(job_id, ArtifactType.SOURCES_JSON)
+    except RuntimeError:
+        return []
+    return sources if isinstance(sources, list) else []
+
+
+def build_description(
+    episode: dict[str, Any],
+    script: dict[str, Any],
+    sources: Any | None = None,
+) -> str:
     parts = [
         str(episode.get("description") or script.get("description") or "").strip(),
         str(episode.get("summary") or script.get("summary") or "").strip(),
@@ -267,11 +286,23 @@ def build_description(episode: dict[str, Any], script: dict[str, Any]) -> str:
     ]
     claims = claim_texts(script.get("used_claims") or [])
     if claims:
-        parts.append("Referenced claims:")
-        for claim in claims[:8]:
-            parts.append(f"- {claim}")
+        parts.append(
+            "\n".join(
+                [
+                    "Referenced claims:",
+                    *(f"- {claim}" for claim in claims[:MAX_REFERENCED_CLAIMS]),
+                ]
+            )
+        )
 
-    return clean_text("\n\n".join(part for part in parts if part), max_bytes=5000)
+    source_lines = source_citation_lines(sources)
+    if source_lines:
+        append_section_with_limit(parts, "Sources and further reading:", source_lines)
+
+    return clean_text(
+        "\n\n".join(part for part in parts if part),
+        max_bytes=MAX_YOUTUBE_DESCRIPTION_BYTES,
+    )
 
 
 def claim_texts(claims: Any) -> list[str]:
@@ -293,6 +324,62 @@ def claim_texts(claims: Any) -> list[str]:
         if cleaned:
             texts.append(cleaned)
     return texts
+
+
+def source_citation_lines(sources: Any) -> list[str]:
+    if isinstance(sources, dict | str):
+        candidates = [sources]
+    elif isinstance(sources, list | tuple):
+        candidates = sources
+    else:
+        return []
+
+    lines: list[str] = []
+    seen_urls: set[str] = set()
+    for source in candidates:
+        citation = source_citation(source)
+        if not citation:
+            continue
+        url_key = citation["url"].lower()
+        if url_key in seen_urls:
+            continue
+        seen_urls.add(url_key)
+        lines.append(f"- {citation['label']} - {citation['url']}")
+    return lines
+
+
+def append_section_with_limit(parts: list[str], heading: str, lines: list[str]) -> None:
+    section_lines = [heading]
+    for line in lines:
+        candidate_section = "\n".join([*section_lines, line])
+        candidate_parts = [*parts, candidate_section]
+        candidate_text = "\n\n".join(part for part in candidate_parts if part)
+        if len(candidate_text.encode("utf-8")) > MAX_YOUTUBE_DESCRIPTION_BYTES:
+            break
+        section_lines.append(line)
+    if len(section_lines) > 1:
+        parts.append("\n".join(section_lines))
+
+
+def source_citation(source: Any) -> dict[str, str] | None:
+    if isinstance(source, dict):
+        url = clean_text(str(source.get("url") or ""), max_chars=500)
+        title = clean_text(str(source.get("title") or ""), max_chars=120)
+        publisher = clean_text(str(source.get("publisher") or ""), max_chars=80)
+    else:
+        url = clean_text(str(source or ""), max_chars=500)
+        title = ""
+        publisher = ""
+
+    if not url:
+        return None
+
+    if title and publisher and publisher.lower() not in title.lower():
+        label = f"{publisher}: {title}"
+    else:
+        label = title or publisher or "Source"
+    label = clean_text(label, max_chars=MAX_SOURCE_LINE_CHARS)
+    return {"label": label, "url": url}
 
 
 def build_tags(job: dict[str, Any], episode: dict[str, Any], script: dict[str, Any]) -> list[str]:

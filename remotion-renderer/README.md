@@ -89,7 +89,7 @@ The renderer consumes JSON validated by `src/types.ts`.
   "thumbnailUrl": "https://cdn.example.com/thumbnail/cover.png",
   "speakers": [
     {"name": "Arman", "role": "Host", "voiceName": "Charon"},
-    {"name": "Maya", "role": "Analyst", "voiceName": "Puck"}
+    {"name": "Maya", "role": "Analyst", "voiceName": "Aoede"}
   ],
   "transcript": "Arman: Welcome back...\nMaya: Let's unpack it...",
   "chapters": [

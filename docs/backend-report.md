@@ -137,8 +137,8 @@ Configuration lives in `app/core/config.py` and is implemented with `pydantic-se
 - Runtime: `ENVIRONMENT`, `LOG_LEVEL`, `API_HOST`, `API_PORT`, `ADMIN_API_KEY`
 - Database/Supabase: `DATABASE_URL`, `SUPABASE_URL`, key variants, JWT settings
 - Storage: `STORAGE_BACKEND`, local storage path, R2 account and bucket settings
-- AI: provider selection, Gemini API key, and separate model names for orchestration/research/script/verification/TTS/image
-- Pipeline behavior: approval gates, retry count, queue visibility timeout, poll interval, export format, TTS chunk size
+- AI: provider selection, Gemini API key, OpenAI API key, and separate model names for orchestration/research/script/verification/TTS/thumbnail image
+- Pipeline behavior: approval gates, retry count, queue visibility timeout, poll interval, export format, TTS generation mode/chunk size
 
 ### Important Computed Settings
 
@@ -370,13 +370,13 @@ Schema exists for speaker metadata, but current application code does not write 
 
 #### `tts_segments`
 
-Tracks chunk-level TTS generation progress.
+Tracks segment-level TTS generation progress.
 
 Includes:
 
 - `job_id`
 - `segment_index`
-- chunk transcript
+- segment fingerprint
 - `r2_key`
 - duration placeholder
 - status and error
@@ -614,14 +614,14 @@ What it does:
 
 - strips generated TTS preamble/header noise from the transcript
 - normalizes voices to supported Gemini prebuilt voices
-- chunks the transcript using dialogue-aware logic
-- builds TTS-ready prompts for each chunk
+- defaults to dialogue-aware chunked TTS so longer episodes stay within Gemini output limits
+- can still use one full-episode TTS prompt for short episodes when configured
 - emits `tts_config.json`
 
 Important safety limits:
 
-- source chunk size is capped at `min(MAX_TTS_CHUNK_CHARS, 1200)`
-- prompt size is expected to stay below 1800 characters
+- `TTS_GENERATION_MODE=chunked` is the default for reliable longer episodes
+- chunked mode caps source chunk size at `min(MAX_TTS_CHUNK_CHARS, 1200)`
 - only two speakers are supported
 
 ### 8. Audio Generation Agent
@@ -638,8 +638,8 @@ What it does:
 - skips full regeneration if final audio already exists
 - rebuilds stale TTS config if the config appears oversized or incompatible
 - reuses completed segment audio when possible
-- generates missing chunk audio
-- stores chunk WAV files as artifacts
+- generates missing TTS segment audio
+- stores segment WAV files as artifacts
 - records `tts_segments`
 - stitches PCM into a final WAV
 - optionally converts WAV to MP3 using `ffmpeg`
@@ -823,7 +823,7 @@ This is a strong developer-experience choice because it lets the full pipeline r
 `app/providers/gemini.py` supports:
 
 - grounded text generation
-- image generation
+- image generation when configured as the thumbnail image provider
 - multi-speaker audio generation
 
 Notable implementation details:
@@ -833,6 +833,12 @@ Notable implementation details:
 - voice names are normalized to Gemini’s supported prebuilt voices
 - Google Search and URL context tools are conditionally enabled
 - synchronous SDK calls are isolated with `asyncio.to_thread(...)`
+
+### OpenAI Image Provider
+
+`app/providers/openai.py` supports thumbnail-only image generation through GPT Image.
+The thumbnail agent can use this provider without changing the Gemini-backed
+research, scripting, verification, or TTS stages.
 
 ### Important Runtime Note
 

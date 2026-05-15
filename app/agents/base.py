@@ -43,6 +43,7 @@ class AgentContext:
     session: AsyncSession
     storage: ObjectStorage
     ai: AIProvider
+    image_ai: AIProvider | None = None
 
     @property
     def artifact_repo(self) -> ArtifactRepository:
@@ -51,6 +52,10 @@ class AgentContext:
     @property
     def artifact_service(self) -> ArtifactService:
         return ArtifactService(self.storage, self.artifact_repo)
+
+    @property
+    def thumbnail_ai(self) -> AIProvider:
+        return self.image_ai or self.ai
 
     @property
     def job_repo(self) -> JobRepository:

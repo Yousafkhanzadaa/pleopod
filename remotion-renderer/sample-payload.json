@@ -15,13 +15,13 @@
       "name": "Arman",
       "role": "Host",
       "voiceName": "Charon",
-      "style": "clear, warm"
+      "style": "clear, warm, informed"
     },
     {
       "name": "Maya",
       "role": "Analyst",
-      "voiceName": "Puck",
-      "style": "curious, energetic"
+      "voiceName": "Aoede",
+      "style": "breezy, curious, conversational"
     }
   ],
   "transcript": "TTS the following conversation between Arman and Maya:\n\nArman: Welcome back. Today we are looking at how an AI podcast pipeline should work.\nMaya: The key is simple: research first, verify every important claim, then generate audio.\nArman: That pipeline gives operators something they can inspect, retry, and trust.\nMaya: And once the episode exists, a video renderer can turn it into a polished visual asset for podcast apps and social platforms.",

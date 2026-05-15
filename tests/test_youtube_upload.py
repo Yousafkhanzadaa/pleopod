@@ -68,8 +68,10 @@ class _Context:
         youtube_refresh_token: str | None = "refresh-token",
         existing_upload_result: dict | None = None,
         latest_upload_result: dict | None = None,
+        sources: list[dict] | None = None,
     ) -> None:
         self.latest_upload_result = latest_upload_result
+        self.sources = sources if sources is not None else _sources()
         self.settings = SimpleNamespace(
             youtube_uploader_path=Path("youtube-uploader"),
             youtube_client_id=youtube_client_id,
@@ -90,6 +92,8 @@ class _Context:
     async def latest_json(self, job_id: str, artifact_type: ArtifactType) -> dict:
         if artifact_type == ArtifactType.EPISODE_METADATA_JSON:
             return {"episode": _episode(), "script": _script()}
+        if artifact_type == ArtifactType.SOURCES_JSON:
+            return self.sources
         if artifact_type == ArtifactType.YOUTUBE_UPLOAD_RESULT_JSON and self.latest_upload_result:
             return self.latest_upload_result
         raise AssertionError(f"Unexpected artifact type: {artifact_type}")
@@ -140,6 +144,21 @@ def _script() -> dict:
     }
 
 
+def _sources() -> list[dict]:
+    return [
+        {
+            "url": "https://example.com/source-1",
+            "title": "Primary Research Source",
+            "publisher": "Example Labs",
+        },
+        {
+            "url": "https://example.com/source-2",
+            "title": "Follow-up Analysis",
+            "publisher": "Example News",
+        },
+    ]
+
+
 def test_build_youtube_manifest_uses_episode_metadata() -> None:
     context = _Context()
 
@@ -150,6 +169,7 @@ def test_build_youtube_manifest_uses_episode_metadata() -> None:
         Path("/tmp/final.mp4"),
         Path("/tmp/cover.png"),
         context,  # type: ignore[arg-type]
+        sources=_sources(),
     )
 
     assert manifest["title"] == "AI Pipelines"
@@ -158,6 +178,10 @@ def test_build_youtube_manifest_uses_episode_metadata() -> None:
     assert manifest["privacyStatus"] == "private"
     assert manifest["categoryId"] == "28"
     assert "Verification improves trust." in manifest["description"]
+    assert "Sources and further reading:" in manifest["description"]
+    assert "Example Labs: Primary Research Source - https://example.com/source-1" in manifest[
+        "description"
+    ]
     assert "Video Podcast" in manifest["tags"]
 
 
@@ -175,6 +199,40 @@ def test_build_description_accepts_schema_claim_strings() -> None:
 
     assert "Verification improves trust." in description
     assert "Structured claim text still works." in description
+
+
+def test_build_description_appends_deduplicated_sources() -> None:
+    description = build_description(
+        _episode(),
+        _script(),
+        [
+            {
+                "url": "https://example.com/source-1",
+                "title": "Primary Research Source",
+                "publisher": "Example Labs",
+            },
+            {
+                "url": "https://example.com/source-1",
+                "title": "Duplicate Source",
+                "publisher": "Example Labs",
+            },
+            {
+                "url": "https://example.com/source-2",
+                "title": "Example News Follow-up",
+                "publisher": "Example News",
+            },
+            {"title": "Missing URL"},
+        ],
+    )
+
+    assert "Sources and further reading:" in description
+    assert (
+        "- Example Labs: Primary Research Source - https://example.com/source-1"
+        in description
+    )
+    assert "- Example News Follow-up - https://example.com/source-2" in description
+    assert description.count("https://example.com/source-1") == 1
+    assert "Missing URL" not in description
 
 
 def test_is_successful_upload_result_requires_youtube_identity() -> None:
@@ -219,6 +277,9 @@ async def test_youtube_upload_agent_writes_manifest_result_and_completes_job(
         ArtifactType.YOUTUBE_UPLOAD_RESULT_JSON,
         "episodes/episode-1/youtube/upload_result.json",
     )
+    assert "Sources and further reading:" in context.artifact_service.records[0][2][
+        "description"
+    ]
     assert context.job_repo.updated is not None
     assert context.job_repo.updated["status"] == "completed"
     assert context.job_repo.updated["metadata"]["youtube_video_id"] == "yt-123"
