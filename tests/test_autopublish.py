@@ -8,7 +8,8 @@ from app.core.config import Settings
 from app.db.repositories import AutomationLockRepository, JobRepository
 from app.db.session import dispose_engine, get_sessionmaker, initialize_database
 from app.models.enums import JobStatus
-from app.providers.ai import AudioGeneration, ImageGeneration, TextGeneration
+from app.providers.ai import TextGeneration
+from app.providers.fake import FakeAIProvider
 from app.worker.autopublish import AutopublishRunner
 
 
@@ -72,7 +73,7 @@ async def test_autopublish_scout_only_does_not_create_job(tmp_path: Path) -> Non
         result = await AutopublishRunner(settings).scout_only()
 
         assert result["status"] == "scouted"
-        assert result["payload"]["topic"] == "AI Coding Agents in 2026"
+        assert result["payload"]["topic"] == "OpenAI launches new Codex team controls"
         assert result["payload"]["auto_publish"] is True
 
         sessionmaker = get_sessionmaker(settings)
@@ -85,7 +86,7 @@ async def test_autopublish_scout_only_does_not_create_job(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_autopublish_scout_only_reports_insufficient_sources(tmp_path: Path) -> None:
+async def test_autopublish_scout_only_continues_with_too_few_sources(tmp_path: Path) -> None:
     settings = _settings(
         tmp_path,
         autopublish_min_source_urls=3,
@@ -95,14 +96,14 @@ async def test_autopublish_scout_only_reports_insufficient_sources(tmp_path: Pat
 
     try:
         runner = AutopublishRunner(settings)
-        runner.ai = InsufficientSourceProvider()
+        runner.ai = LowSourceFakeProvider()
 
         result = await runner.scout_only()
 
-        assert result["status"] == "needs_sources"
-        assert result["reason"] == "insufficient_topic_sources"
-        assert result["requiredSourceUrls"] == 3
-        assert result["foundSourceUrls"] == 1
+        assert result["status"] == "scouted"
+        assert result["payload"]["metadata"]["topic_scout"]["source_warning"][
+            "action"
+        ] == "continued_without_skipping"
 
         sessionmaker = get_sessionmaker(settings)
         async with sessionmaker() as session:
@@ -114,7 +115,7 @@ async def test_autopublish_scout_only_reports_insufficient_sources(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-async def test_autopublish_run_skips_insufficient_sources(tmp_path: Path) -> None:
+async def test_autopublish_run_continues_with_too_few_sources(tmp_path: Path) -> None:
     settings = _settings(
         tmp_path,
         autopublish_min_source_urls=3,
@@ -124,20 +125,20 @@ async def test_autopublish_run_skips_insufficient_sources(tmp_path: Path) -> Non
 
     try:
         runner = AutopublishRunner(settings)
-        runner.ai = InsufficientSourceProvider()
+        runner.ai = LowSourceFakeProvider()
 
         result = await runner.run_once()
 
-        assert result["status"] == "skipped"
-        assert result["reason"] == "insufficient_topic_sources"
-        assert result["requiredSourceUrls"] == 3
-        assert result["foundSourceUrls"] == 1
+        assert result["status"] == JobStatus.COMPLETED
 
         sessionmaker = get_sessionmaker(settings)
         async with sessionmaker() as session:
             jobs = await JobRepository(session).list_jobs()
 
-        assert jobs == []
+        assert len(jobs) == 1
+        assert jobs[0]["metadata"]["topic_scout"]["source_warning"][
+            "action"
+        ] == "continued_without_skipping"
     finally:
         await dispose_engine()
 
@@ -163,7 +164,7 @@ def _settings(tmp_path: Path, **overrides: Any) -> Settings:
     return Settings(**values)  # type: ignore[arg-type]
 
 
-class InsufficientSourceProvider:
+class LowSourceFakeProvider(FakeAIProvider):
     async def generate_text(
         self,
         prompt: str,
@@ -172,6 +173,15 @@ class InsufficientSourceProvider:
         urls: list[str] | None = None,
         response_schema: object | None = None,
     ) -> TextGeneration:
+        schema_name = getattr(response_schema, "__name__", "")
+        if schema_name != "TopicScoutDecision" and "topic scout" not in prompt.lower():
+            return await super().generate_text(
+                prompt=prompt,
+                model=model,
+                use_google_search=use_google_search,
+                urls=urls,
+                response_schema=response_schema,
+            )
         return TextGeneration(
             text=json.dumps(
                 {
@@ -189,9 +199,3 @@ class InsufficientSourceProvider:
                 }
             )
         )
-
-    async def generate_image(self, prompt: str, model: str) -> ImageGeneration:
-        raise NotImplementedError
-
-    async def generate_tts(self, prompt: str, model: str, speakers: list[Any]) -> AudioGeneration:
-        raise NotImplementedError

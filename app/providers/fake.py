@@ -40,23 +40,25 @@ class FakeAIProvider(AIProvider):
             return TextGeneration(text=json.dumps(orchestration_data))
         if schema_name == "TopicScoutDecision" or "topic scout agent" in lower:
             topic_data: dict[str, Any] = {
-                "topic": "AI Coding Agents in 2026",
-                "title": "AI Coding Agents Are Becoming Real Software Teammates",
-                "rationale": "Fake local timely topic for scheduled publishing tests.",
+                "topic": "OpenAI launches new Codex team controls",
+                "title": "OpenAI Launches New Codex Team Controls",
+                "rationale": "Fake local current-event topic for scheduled publishing tests.",
                 "source_urls": [
-                    "https://openai.com/blog/example-ai-coding-agents",
-                    "https://github.blog/example-ai-coding-agents",
-                    "https://arstechnica.com/example-ai-coding-agents",
+                    "https://openai.com/blog/example-codex-team-controls",
+                    "https://github.blog/example-codex-team-controls",
+                    "https://arstechnica.com/example-codex-team-controls",
                 ],
                 "candidates": [
                     {
-                        "topic": "AI Coding Agents in 2026",
-                        "title": "AI Coding Agents Are Becoming Real Software Teammates",
-                        "rationale": "Fake local timely topic for scheduled publishing tests.",
+                        "topic": "OpenAI launches new Codex team controls",
+                        "title": "OpenAI Launches New Codex Team Controls",
+                        "rationale": (
+                            "Fake local current-event topic for scheduled publishing tests."
+                        ),
                         "source_urls": [
-                            "https://openai.com/blog/example-ai-coding-agents",
-                            "https://github.blog/example-ai-coding-agents",
-                            "https://arstechnica.com/example-ai-coding-agents",
+                            "https://openai.com/blog/example-codex-team-controls",
+                            "https://github.blog/example-codex-team-controls",
+                            "https://arstechnica.com/example-codex-team-controls",
                         ],
                         "score": 0.9,
                     },

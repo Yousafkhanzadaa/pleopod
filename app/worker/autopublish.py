@@ -11,7 +11,6 @@ from uuid import uuid4
 from app.agents.base import AgentContext
 from app.agents.topic_scout import (
     TopicScoutAgent,
-    TopicScoutInsufficientSourcesError,
     public_topic_scout_decision,
 )
 from app.core.config import Settings, get_settings
@@ -71,31 +70,17 @@ class AutopublishRunner:
                     "topicScout": scout_result.decision.get("rationale"),
                     **pipeline_result,
                 }
-        except TopicScoutInsufficientSourcesError as exc:
-            logger.info("Autopublish skipped because Topic Scout needs more sources: %s", exc)
-            return {
-                "status": "skipped",
-                "reason": "insufficient_topic_sources",
-                **exc.to_result(),
-            }
         finally:
             await self._release_lock(owner_id)
 
     async def scout_only(self) -> dict[str, Any]:
         await initialize_database(self.settings)
         recent_jobs = await self._recent_jobs()
-        try:
-            scout_result = await TopicScoutAgent().run(
-                settings=self.settings,
-                ai=self.ai,
-                recent_jobs=recent_jobs,
-            )
-        except TopicScoutInsufficientSourcesError as exc:
-            return {
-                "status": "needs_sources",
-                "reason": "insufficient_topic_sources",
-                **exc.to_result(),
-            }
+        scout_result = await TopicScoutAgent().run(
+            settings=self.settings,
+            ai=self.ai,
+            recent_jobs=recent_jobs,
+        )
         return {
             "status": "scouted",
             "payload": scout_result.payload.model_dump(mode="json"),
@@ -289,7 +274,7 @@ async def async_main(argv: list[str] | None = None) -> int:
     runner = AutopublishRunner(settings)
     result = await runner.scout_only() if args.command == "scout" else await runner.run_once()
     print(to_pretty_json(result))
-    return 0 if result.get("status") in {"completed", "skipped", "scouted", "needs_sources"} else 1
+    return 0 if result.get("status") in {"completed", "skipped", "scouted"} else 1
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -17,63 +17,59 @@ from app.schemas.agent_outputs import TopicScoutDecision
 from app.schemas.jobs import GenerationJobCreate
 
 logger = logging.getLogger(__name__)
+TOPIC_SCOUT_MAX_SELECTION_ATTEMPTS = 4
 
 _STOPWORDS = {
     "a",
     "about",
     "after",
+    "an",
     "and",
+    "are",
     "as",
     "at",
+    "be",
+    "been",
+    "being",
+    "by",
+    "can",
+    "could",
+    "does",
+    "do",
     "for",
     "from",
+    "has",
+    "have",
     "how",
     "in",
     "inside",
     "is",
     "it",
+    "its",
+    "latest",
+    "more",
     "new",
     "of",
     "on",
+    "or",
+    "over",
     "the",
+    "their",
+    "this",
     "to",
     "today",
+    "will",
     "what",
+    "when",
     "why",
     "with",
+    "would",
 }
-
 
 @dataclass(frozen=True)
 class TopicScoutResult:
     payload: GenerationJobCreate
     decision: dict[str, Any]
-
-
-class TopicScoutInsufficientSourcesError(ValueError):
-    def __init__(
-        self,
-        *,
-        message: str,
-        required: int,
-        found: int,
-        source_urls: list[str],
-        decision: dict[str, Any],
-    ):
-        super().__init__(message)
-        self.required = required
-        self.found = found
-        self.source_urls = source_urls
-        self.decision = decision
-
-    def to_result(self) -> dict[str, Any]:
-        return {
-            "requiredSourceUrls": self.required,
-            "foundSourceUrls": self.found,
-            "sourceUrls": self.source_urls,
-            "decision": public_topic_scout_decision(self.decision),
-        }
-
 
 class TopicScoutAgent:
     name = "topic_scout_agent"
@@ -85,201 +81,102 @@ class TopicScoutAgent:
         ai: AIProvider,
         recent_jobs: list[dict[str, Any]],
     ) -> TopicScoutResult:
-        response = await ai.generate_text(
-            prompt=topic_scout_prompt(settings, recent_jobs),
-            model=settings.autopublish_topic_model,
-            use_google_search=True,
-            response_schema=TopicScoutDecision,
-        )
-        decision = await parse_or_repair_topic_scout_decision(
-            response_text=response.text,
-            citations=response.citations,
-            settings=settings,
-            ai=ai,
-            recent_jobs=recent_jobs,
-        )
-        decision = enrich_decision_source_quality(decision, settings, response.citations)
-        decision = select_publishable_decision(
-            decision,
-            recent_jobs,
-            min_source_urls=settings.autopublish_min_source_urls,
-            require_trusted_sources=settings.autopublish_require_trusted_sources,
-            trusted_domains=trusted_source_domains(settings),
-        )
-        decision = await complete_decision_sources_if_needed(
-            decision,
-            settings=settings,
-            ai=ai,
-            recent_jobs=recent_jobs,
-        )
+        prompt = topic_scout_prompt(settings, recent_jobs)
+        decision: dict[str, Any] | None = None
+        for attempt in range(1, TOPIC_SCOUT_MAX_SELECTION_ATTEMPTS + 1):
+            decision = await run_topic_scout_search_prompt(
+                prompt=prompt,
+                settings=settings,
+                ai=ai,
+                recent_jobs=recent_jobs,
+            )
+            duplicate_match = decision_recent_topic_match(decision, recent_jobs)
+            if not duplicate_match:
+                break
+            logger.info(
+                "Topic Scout returned an already-used topic on attempt %s/%s; asking Gemini "
+                "for a different single topic",
+                attempt,
+                TOPIC_SCOUT_MAX_SELECTION_ATTEMPTS,
+            )
+            prompt = topic_scout_retry_prompt(
+                recent_jobs=recent_jobs,
+                previous_decision=decision,
+                duplicate_match=duplicate_match,
+                attempt=attempt + 1,
+            )
+        assert decision is not None
         payload = generation_job_from_decision(decision, settings)
         return TopicScoutResult(payload=payload, decision=decision)
 
 
 def topic_scout_prompt(settings: Settings, recent_jobs: list[dict[str, Any]]) -> str:
-    recent_topics = [
-        {
-            "topic": job.get("topic"),
-            "status": job.get("status"),
-            "created_at": str(job.get("created_at") or ""),
-        }
-        for job in recent_jobs
-        if job.get("topic")
-    ]
-    trusted_examples = ", ".join(sorted(trusted_source_domains(settings))[:35])
-    trusted_search_plan = to_pretty_json(trusted_source_search_plan())
+    recent_topics = recent_topic_prompt_records(recent_jobs)
     return f"""
-You are the Topic Scout Agent for Pleopod.
+You are Pleopod's podcast topic editor.
 
-Choose one timely, source-backed technology podcast topic to publish today.
+Pick one technology topic for today's podcast episode.
 Current UTC datetime: {datetime.now(UTC).isoformat(timespec="seconds")}
 
-Audience:
+Target audience:
 {settings.autopublish_audience}
 
-Category:
-{settings.autopublish_category}
-
-Region/signal focus:
+Signal focus:
 {settings.autopublish_region}
 
-Recent Pleopod jobs to avoid repeating:
+Already used topics and titles. Do not repeat or rephrase these:
 {to_pretty_json(recent_topics)}
 
-Use Gemini's Google Search grounding for discovery. Search trusted sources first.
-Do not start from a broad generic topic. Start from source-targeted searches,
-then pick the strongest concrete story from what those trusted sources reveal.
+Use live Google Search grounding. Find a fresh, popular story that many people
+would actually want to hear discussed in a podcast today. Prefer topics with
+broad curiosity, clear stakes, and enough depth for a full conversation. Avoid
+niche maintenance updates, evergreen explainers, rumors, and anything already
+covered above.
 
-Trusted source examples:
-{trusted_examples}
-
-Trusted-source search plan:
-{trusted_search_plan}
-
-Search procedure:
-1. Run source-targeted searches first, using queries like:
-   site:openai.com latest announcement today
-   site:blog.google.com OR site:blog.google AI announcement today
-   site:theverge.com AI today
-   site:arstechnica.com security today
-   site:nvd.nist.gov vulnerability today
-2. Inspect original result pages from those trusted domains.
-3. Pick a topic only if direct trusted pages support it.
-4. Use broad Google Search only to corroborate a trusted-source story, not to
-   invent a generic topic.
-5. If trusted-source searches do not reveal a concrete story with enough direct
-   source URLs, return the best concrete candidate and its URLs; do not fall back
-   to evergreen predictions.
-
-Scouting rules:
-- Search live sources now with Gemini Google Search; do not rely on memory.
-- Pick a concrete current event from the last 24-48 hours: release, outage,
-  security advisory, funding/acquisition, regulation, lawsuit, benchmark, paper,
-  product launch, or major official announcement.
-- Do not pick evergreen explainers, broad future predictions, or "state of X"
-  topics unless they are tied to a concrete new source today.
-- Prefer primary sources, official posts, papers, filings, security advisories,
-  regulator/government pages, and reputable tech journalism.
-- Avoid pure rumors, tragedy coverage, partisan politics, stock-price-only stories,
-  celebrity gossip, and evergreen explainers.
-- The selected topic must have enough substance for a complete factual episode.
-- Include 3-8 direct source URLs for the selected topic. Use original article,
-  announcement, paper, advisory, filing, or reputable publication URLs.
-- Prefer at least one primary/official source when available.
-- Reject SEO roundups, scraper pages, thin summaries, and unsupported viral posts.
-- Provide 2-3 candidates and pick the strongest one.
-- Do not repeat recent Pleopod topics unless there is a major new development.
-- Score candidates using freshness, source authority, corroboration, audience fit,
-  and episode depth.
-- Return JSON only.
-
-JSON shape:
+Return exactly one best topic. The topic and title are the priority.
+Return JSON only, with no extra keys:
 {{
-  "topic": "specific episode topic",
-  "title": "YouTube-friendly working title",
-  "rationale": "why this is timely and worth publishing now",
-  "source_urls": ["https://..."],
-  "candidates": [
-    {{
-      "topic": "candidate topic",
-      "title": "candidate title",
-      "rationale": "why it matters",
-      "source_urls": ["https://..."],
-      "score": 0.0
-    }}
-  ],
-  "rejected_topics": ["topic and short reason"]
+  "topic": "specific podcast topic",
+  "title": "clear clickable episode title",
+  "source_urls": ["https://..."]
 }}
 """.strip()
 
 
-def trusted_source_search_plan() -> list[dict[str, Any]]:
-    return [
-        {
-            "group": "official_ai_company_sources",
-            "domains": [
-                "openai.com",
-                "blog.google",
-                "deepmind.google",
-                "anthropic.com",
-                "microsoft.com",
-                "github.blog",
-                "nvidia.com",
-                "aws.amazon.com",
-                "apple.com/newsroom",
-                "meta.com",
-            ],
-            "queries": [
-                "site:openai.com latest announcement AI today",
-                "site:blog.google AI announcement today",
-                "site:anthropic.com news AI today",
-                "site:github.blog AI developer tools today",
-                "site:nvidia.com AI announcement today",
-            ],
-        },
-        {
-            "group": "trusted_tech_journalism",
-            "domains": [
-                "theverge.com",
-                "arstechnica.com",
-                "wired.com",
-                "techcrunch.com",
-                "technologyreview.com",
-                "bloomberg.com",
-                "reuters.com",
-                "apnews.com",
-                "cnbc.com",
-            ],
-            "queries": [
-                "site:theverge.com AI today",
-                "site:arstechnica.com AI OR security today",
-                "site:techcrunch.com AI startup today",
-                "site:wired.com artificial intelligence today",
-                "site:reuters.com technology AI today",
-            ],
-        },
-        {
-            "group": "security_and_regulatory_sources",
-            "domains": [
-                "nvd.nist.gov",
-                "cisa.gov",
-                "sec.gov",
-                "ftc.gov",
-                "justice.gov",
-                "europa.eu",
-                "bleepingcomputer.com",
-                "krebsonsecurity.com",
-                "securityweek.com",
-            ],
-            "queries": [
-                "site:nvd.nist.gov vulnerability today",
-                "site:cisa.gov advisory today",
-                "site:sec.gov technology enforcement today",
-                "site:ftc.gov AI technology today",
-                "site:bleepingcomputer.com vulnerability today",
-            ],
-        },
-    ]
+async def run_topic_scout_search_prompt(
+    *,
+    prompt: str,
+    settings: Settings,
+    ai: AIProvider,
+    recent_jobs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    response = await ai.generate_text(
+        prompt=prompt,
+        model=settings.autopublish_topic_model,
+        use_google_search=True,
+        response_schema=TopicScoutDecision,
+    )
+    decision = await parse_or_repair_topic_scout_decision(
+        response_text=response.text,
+        citations=response.citations,
+        settings=settings,
+        ai=ai,
+        recent_jobs=recent_jobs,
+    )
+    decision = enrich_decision_source_quality(decision, settings, response.citations)
+    decision = select_publishable_decision(
+        decision,
+        recent_jobs,
+        min_source_urls=settings.autopublish_min_source_urls,
+        require_trusted_sources=settings.autopublish_require_trusted_sources,
+        trusted_domains=trusted_source_domains(settings),
+    )
+    return await complete_decision_sources_if_needed(
+        decision,
+        settings=settings,
+        ai=ai,
+        recent_jobs=recent_jobs,
+    )
 
 
 async def parse_or_repair_topic_scout_decision(
@@ -332,9 +229,6 @@ async def complete_decision_sources_if_needed(
     response = await ai.generate_text(
         prompt=topic_scout_source_completion_prompt(
             decision=decision,
-            settings=settings,
-            recent_jobs=recent_jobs,
-            current_sources=current_sources,
         ),
         model=settings.autopublish_topic_model,
         use_google_search=True,
@@ -446,40 +340,70 @@ def topic_scout_repair_prompt(
     citation_data = [
         {
             "title": citation.title,
-            "url": citation.url,
         }
         for citation in citations
-        if citation.url
+        if citation.title
     ]
     return f"""
-You are repairing Topic Scout output for Pleopod.
+You are repairing Pleopod topic scout output.
 
-The previous Gemini Google Search pass produced output that could not be parsed.
-Do not search again. Convert the available text and grounding citations into one
-valid JSON object matching the requested schema. If the previous output is a JSON
-array of candidate topics, select the strongest candidate as the top-level topic
-and keep all usable entries in "candidates".
+Do not search again. Convert the available text into one simple podcast-topic
+JSON object. If there are multiple options, keep only the strongest one.
 
 Parse/validation error:
 {error}
 
-Recent Pleopod jobs to avoid repeating:
-{to_pretty_json([job for job in recent_jobs if job.get("topic")])}
+Already used topics and titles:
+{to_pretty_json(recent_topic_prompt_records(recent_jobs))}
 
-Grounding citations from the search pass:
+Grounding citation titles from the search pass:
 {to_pretty_json(citation_data)}
 
 Previous raw output:
 {response_text[:8000] if response_text.strip() else "(empty)"}
 
-Return JSON only with this shape:
+Return JSON only:
 {{
-  "topic": "specific episode topic",
-  "title": "YouTube-friendly working title",
-  "rationale": "why this is timely and worth publishing now",
-  "source_urls": ["https://..."],
-  "candidates": [],
-  "rejected_topics": []
+  "topic": "specific podcast topic",
+  "title": "clear clickable episode title",
+  "source_urls": ["https://..."]
+}}
+""".strip()
+
+
+def topic_scout_retry_prompt(
+    *,
+    recent_jobs: list[dict[str, Any]],
+    previous_decision: dict[str, Any],
+    duplicate_match: dict[str, Any],
+    attempt: int,
+) -> str:
+    return f"""
+You are Pleopod's podcast topic editor.
+
+Attempt {attempt} of {TOPIC_SCOUT_MAX_SELECTION_ATTEMPTS}.
+
+Your previous topic was too close to an already used topic. Choose a completely
+different current technology story that a broad podcast audience would care
+about.
+
+Already used topics and titles. Do not repeat or rephrase these:
+{to_pretty_json(recent_topic_prompt_records(recent_jobs))}
+
+Previous rejected decision, do not repeat these topics at all:
+{to_pretty_json(model_visible_topic_decision(previous_decision))}
+
+Why it was considered already used:
+{to_pretty_json(duplicate_match)}
+
+Use live Google Search grounding. Return exactly one best podcast topic. The
+topic and title are the priority.
+
+Return JSON only, with no extra keys:
+{{
+  "topic": "specific podcast topic",
+  "title": "clear clickable episode title",
+  "source_urls": ["https://..."]
 }}
 """.strip()
 
@@ -487,59 +411,24 @@ Return JSON only with this shape:
 def topic_scout_source_completion_prompt(
     *,
     decision: dict[str, Any],
-    settings: Settings,
-    recent_jobs: list[dict[str, Any]],
-    current_sources: list[str],
 ) -> str:
-    trusted_examples = ", ".join(sorted(trusted_source_domains(settings))[:45])
-    trusted_search_plan = to_pretty_json(trusted_source_search_plan())
     return f"""
-You are completing source discovery for Pleopod Topic Scout.
+You are completing source discovery for a Pleopod podcast topic.
 
-The topic has already been selected. Do not pick a new story unless the selected
-topic is clearly unsupported. Use Gemini Google Search grounding to find direct,
-credible, current source URLs for this exact topic.
+The topic is already selected. Use live Google Search grounding to find direct
+source URLs for this exact topic.
 
 Selected topic:
-{decision.get("topic")}
+{to_pretty_json(model_visible_topic_decision(decision))}
 
-Working title:
-{decision.get("title")}
+Return the same topic and title. Add direct source URLs from credible pages you
+find yourself.
 
-Current accepted trusted source URLs:
-{to_pretty_json(current_sources)}
-
-Current decision:
-{to_pretty_json(model_visible_decision(decision))}
-
-Recent Pleopod jobs to avoid repeating:
-{to_pretty_json([job for job in recent_jobs if job.get("topic")])}
-
-Trusted source examples:
-{trusted_examples}
-
-Trusted-source search plan:
-{trusted_search_plan}
-
-Rules:
-- Search live web results now, starting with source-targeted `site:` searches
-  from the trusted-source search plan.
-- Return at least {settings.autopublish_min_source_urls} direct factual source URLs.
-- Prefer original announcements, official blogs, papers, filings, advisories,
-  regulator/government pages, or reputable tech journalism.
-- Include existing accepted sources if they are relevant.
-- Do not count search-result pages, social posts, forums, SEO summaries, or
-  scraper pages as factual sources.
-- Return JSON only.
-
-JSON shape:
+Return JSON only:
 {{
-  "topic": "{decision.get("topic") or "specific episode topic"}",
-  "title": "{decision.get("title") or "YouTube-friendly working title"}",
-  "rationale": "why these sources support the topic",
-  "source_urls": ["https://..."],
-  "candidates": [],
-  "rejected_topics": []
+  "topic": "{decision.get("topic") or "specific podcast topic"}",
+  "title": "{decision.get("title") or "clear clickable episode title"}",
+  "source_urls": ["https://..."]
 }}
 """.strip()
 
@@ -552,53 +441,9 @@ def select_publishable_decision(
     require_trusted_sources: bool = False,
     trusted_domains: set[str] | None = None,
 ) -> dict[str, Any]:
-    recent_topics = [str(job.get("topic") or "") for job in recent_jobs]
-    selected_is_duplicate = topic_is_recent_duplicate(
-        str(decision.get("topic") or ""),
-        recent_topics,
-    )
-    selected_has_enough_sources = (
-        len(
-            publishable_source_urls(
-                decision_source_values(decision),
-                require_trusted_sources=require_trusted_sources,
-                trusted_domains=trusted_domains or set(),
-            )
-        )
-        >= min_source_urls
-    )
-    if not selected_is_duplicate and selected_has_enough_sources:
-        return decision
-
-    candidates = [
-        candidate
-        for candidate in decision.get("candidates", [])
-        if isinstance(candidate, dict)
-        and not topic_is_recent_duplicate(str(candidate.get("topic") or ""), recent_topics)
-        and len(
-            publishable_source_urls(
-                decision_source_values(candidate),
-                require_trusted_sources=require_trusted_sources,
-                trusted_domains=trusted_domains or set(),
-            )
-        )
-        >= min_source_urls
-    ]
-    if not candidates:
-        return decision
-
-    candidates.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
-    selected = candidates[0]
-    return {
-        **decision,
-        "topic": selected.get("topic") or decision.get("topic"),
-        "title": selected.get("title") or decision.get("title"),
-        "source_urls": selected.get("source_urls") or decision.get("source_urls") or [],
-        "rationale": selected.get("rationale") or decision.get("rationale") or "",
-        "source_quality": selected.get("source_quality") or decision.get("source_quality") or {},
-        "selected_from_candidate_due_to_recent_duplicate": selected_is_duplicate,
-        "selected_from_candidate_due_to_source_quality": not selected_has_enough_sources,
-    }
+    # The AI's top-level decision is the publishing decision. Keep code out of
+    # editorial selection so the scheduled run does not get stuck in skip loops.
+    return decision
 
 
 def generation_job_from_decision(
@@ -606,28 +451,18 @@ def generation_job_from_decision(
     settings: Settings,
 ) -> GenerationJobCreate:
     trusted_domains = trusted_source_domains(settings)
-    source_urls = publishable_source_urls(
+    publishable_urls = publishable_source_urls(
         decision_source_values(decision),
         require_trusted_sources=settings.autopublish_require_trusted_sources,
         trusted_domains=trusted_domains,
     )
-    if len(source_urls) < settings.autopublish_min_source_urls:
-        source_label = (
-            "trusted direct source URLs"
-            if settings.autopublish_require_trusted_sources
-            else "source URLs"
-        )
-        raise TopicScoutInsufficientSourcesError(
-            message=(
-                f"Topic Scout selected too few {source_label}: "
-                f"expected at least {settings.autopublish_min_source_urls}, "
-                f"got {len(source_urls)}"
-            ),
-            required=settings.autopublish_min_source_urls,
-            found=len(source_urls),
-            source_urls=source_urls,
-            decision=decision,
-        )
+    fallback_urls = clean_source_urls(decision_source_values(decision))
+    source_urls = publishable_urls or fallback_urls
+    source_warning = source_warning_metadata(
+        found=len(publishable_urls),
+        used=len(source_urls),
+        settings=settings,
+    )
 
     return GenerationJobCreate(
         topic=str(decision.get("topic") or decision.get("title") or "").strip(),
@@ -650,15 +485,12 @@ def generation_job_from_decision(
                 "source_report": decision.get("source_quality", {}),
                 "candidates": compact_topic_scout_candidates(decision.get("candidates", [])),
                 "rejected_topics": decision.get("rejected_topics", []),
-                "selected_from_candidate_due_to_recent_duplicate": bool(
-                    decision.get("selected_from_candidate_due_to_recent_duplicate")
-                ),
-                "selected_from_candidate_due_to_source_quality": bool(
-                    decision.get("selected_from_candidate_due_to_source_quality")
-                ),
                 "source_completion_attempted": bool(
                     decision.get("source_completion_attempted")
                 ),
+                "topic_fingerprint": topic_fingerprint_from_decision(decision),
+                "source_url_keys": sorted(source_url_keys(decision_source_values(decision))),
+                **({"source_warning": source_warning} if source_warning else {}),
             },
         },
     )
@@ -738,12 +570,32 @@ def merge_topic_scout_source_completion(
     }
 
 
+def source_warning_metadata(*, found: int, used: int, settings: Settings) -> dict[str, Any]:
+    if found >= settings.autopublish_min_source_urls:
+        return {}
+    return {
+        "minimum_requested": settings.autopublish_min_source_urls,
+        "publishable_source_urls_found": found,
+        "source_urls_used": used,
+        "trusted_sources_required": settings.autopublish_require_trusted_sources,
+        "action": "continued_without_skipping",
+    }
+
+
 def model_visible_decision(decision: dict[str, Any]) -> dict[str, Any]:
     return {
         "topic": decision.get("topic"),
         "title": decision.get("title"),
         "rationale": decision.get("rationale"),
         "source_urls": clean_source_urls(decision.get("source_urls") or []),
+    }
+
+
+def model_visible_topic_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "topic": decision.get("topic"),
+        "title": decision.get("title"),
+        "rationale": decision.get("rationale"),
     }
 
 
@@ -919,26 +771,168 @@ def configured_domains(raw: str) -> set[str]:
     return domains
 
 
-def topic_is_recent_duplicate(topic: str, recent_topics: list[str]) -> bool:
-    topic_tokens = normalized_topic_tokens(topic)
-    if not topic_tokens:
-        return False
-
-    for recent_topic in recent_topics:
-        recent_tokens = normalized_topic_tokens(recent_topic)
-        if not recent_tokens:
+def recent_topic_records(
+    recent_jobs: list[dict[str, Any]],
+    *,
+    include_source_keys: bool = False,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for job in recent_jobs:
+        topic = str(job.get("topic") or "").strip()
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        scout = metadata.get("topic_scout") if isinstance(metadata, dict) else {}
+        if not isinstance(scout, dict):
+            scout = {}
+        title = str(scout.get("title") or "").strip()
+        if not topic and not title:
             continue
-        if topic_tokens == recent_tokens:
-            return True
-        overlap = len(topic_tokens & recent_tokens) / max(len(topic_tokens | recent_tokens), 1)
-        if overlap >= 0.72:
-            return True
-    return False
+        record = {
+            "topic": topic,
+            "title": title,
+            "status": str(job.get("status") or ""),
+            "created_at": str(job.get("created_at") or ""),
+        }
+        if include_source_keys:
+            raw_source_report = scout.get("source_report")
+            source_report = raw_source_report if isinstance(raw_source_report, dict) else {}
+            source_urls = clean_source_urls(
+                [
+                    *(job.get("source_urls") or []),
+                    *source_quality_url_values(source_report),
+                ]
+            )
+            record["topic_fingerprint"] = topic_fingerprint(topic, title)
+            record["source_url_keys"] = sorted(source_url_keys(source_urls))
+        records.append(record)
+    return records
+
+
+def recent_topic_prompt_records(recent_jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "topic": record.get("topic"),
+            "title": record.get("title"),
+        }
+        for record in recent_topic_records(recent_jobs)
+    ]
+
+
+def decision_recent_topic_match(
+    decision: dict[str, Any],
+    recent_jobs: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    current_text = topic_identity_text(
+        str(decision.get("topic") or ""),
+        str(decision.get("title") or ""),
+    )
+    current_fingerprint = topic_fingerprint_from_decision(decision)
+    current_source_keys = source_url_keys(decision_source_values(decision))
+
+    for record in recent_topic_records(recent_jobs, include_source_keys=True):
+        recent_text = topic_identity_text(
+            str(record.get("topic") or ""),
+            str(record.get("title") or ""),
+        )
+        if current_fingerprint and current_fingerprint == record.get("topic_fingerprint"):
+            return recent_topic_match("matching_topic_fingerprint", record)
+        if topic_texts_are_similar(current_text, recent_text):
+            return recent_topic_match("similar_topic_or_title", record)
+        shared_source_keys = sorted(current_source_keys & set(record.get("source_url_keys") or []))
+        if shared_source_keys:
+            return recent_topic_match(
+                "matching_source_url",
+                record,
+            )
+    return None
+
+
+def recent_topic_match(reason: str, record: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    return {
+        "reason": reason,
+        "recent_topic": record.get("topic"),
+        "recent_title": record.get("title"),
+        "recent_created_at": record.get("created_at"),
+        **extra,
+    }
+
+
+def topic_identity_text(topic: str, title: str | None = None) -> str:
+    return " ".join(part for part in (topic, title or "") if part).strip()
+
+
+def topic_fingerprint_from_decision(decision: dict[str, Any]) -> str:
+    return topic_fingerprint(
+        str(decision.get("topic") or ""),
+        str(decision.get("title") or ""),
+    )
+
+
+def topic_fingerprint(topic: str, title: str | None = None) -> str:
+    return " ".join(sorted(normalized_topic_tokens(topic_identity_text(topic, title))))
+
+
+def topic_texts_are_similar(topic: str, recent_topic: str) -> bool:
+    topic_tokens = normalized_topic_tokens(topic)
+    recent_tokens = normalized_topic_tokens(recent_topic)
+    if not topic_tokens or not recent_tokens:
+        return False
+    if topic_tokens == recent_tokens:
+        return True
+    intersection = topic_tokens & recent_tokens
+    union = topic_tokens | recent_tokens
+    jaccard = len(intersection) / max(len(union), 1)
+    containment = len(intersection) / max(min(len(topic_tokens), len(recent_tokens)), 1)
+    return len(intersection) >= 3 and (jaccard >= 0.62 or containment >= 0.72)
+
+
+def source_url_keys(values: list[Any]) -> set[str]:
+    return {
+        key
+        for url in clean_source_urls(values)
+        if (key := canonical_source_url_key(url))
+    }
+
+
+def canonical_source_url_key(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return ""
+    domain = source_domain(url)
+    if not domain:
+        return ""
+    path = "/".join(segment for segment in parsed.path.split("/") if segment)
+    return f"{domain}/{path}".rstrip("/")
+
+
+def topic_is_recent_duplicate(topic: str, recent_topics: list[str]) -> bool:
+    return any(topic_texts_are_similar(topic, recent_topic) for recent_topic in recent_topics)
 
 
 def normalized_topic_tokens(topic: str) -> set[str]:
     return {
-        token
+        normalized
         for token in re.findall(r"[a-z0-9]+", topic.lower())
-        if token not in _STOPWORDS and len(token) > 1
+        if (normalized := normalize_topic_token(token))
+        and normalized not in _STOPWORDS
+        and len(normalized) > 1
     }
+
+
+def normalize_topic_token(token: str) -> str:
+    token = token.lower().strip()
+    if len(token) > 5 and token.endswith("ies"):
+        return f"{token[:-3]}y"
+    if len(token) > 5 and token.endswith(("ces", "ses")):
+        return token[:-1]
+    if len(token) > 5 and token.endswith("ing"):
+        return token[:-3]
+    if len(token) > 5 and token.endswith(("ced", "sed")):
+        return token[:-1]
+    if len(token) > 4 and token.endswith("ed"):
+        return token[:-2]
+    if len(token) > 4 and token.endswith("es"):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s"):
+        return token[:-1]
+    return token
