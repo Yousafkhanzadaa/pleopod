@@ -3,7 +3,7 @@
 Reviewed: April 25, 2026.
 
 Pleopod can publish generated video podcasts to YouTube as a separate execution
-plane after Remotion rendering.
+plane after MP4 creation.
 
 ## Why Separate
 
@@ -27,6 +27,8 @@ uploader worker.
 
 ```text
 VideoRenderAgent
+  -> creates a static thumbnail+audio MP4 when ENABLE_VIDEO_RENDERING=false
+  -> creates an animated Remotion MP4 when ENABLE_VIDEO_RENDERING=true
   -> stores episodes/{episode_id}/video/final.mp4
   -> queues youtube_upload when ENABLE_YOUTUBE_UPLOADING=true
 
@@ -64,6 +66,7 @@ python -m youtube_uploader exchange-code \
 Configure the worker:
 
 ```env
+ENABLE_VIDEO_RENDERING=false
 ENABLE_YOUTUBE_UPLOADING=true
 YOUTUBE_UPLOADER_PATH=youtube-uploader
 YOUTUBE_CLIENT_ID=...
@@ -72,6 +75,11 @@ YOUTUBE_REFRESH_TOKEN=...
 YOUTUBE_DEFAULT_PRIVACY_STATUS=private
 YOUTUBE_DEFAULT_CATEGORY_ID=28
 ```
+
+With `ENABLE_VIDEO_RENDERING=false`, YouTube uploads use a lightweight static
+thumbnail video generated with ffmpeg. Set `ENABLE_VIDEO_RENDERING=true` only
+when you want the heavier animated Remotion render. The Dockerfile installs
+ffmpeg for Railway; local runs need ffmpeg available on `PATH`.
 
 Set `YOUTUBE_DEFAULT_PRIVACY_STATUS=private` for first launches. Google may force
 private uploads for projects that have not completed API compliance verification.

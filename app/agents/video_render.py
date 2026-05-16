@@ -4,6 +4,7 @@ import asyncio
 import math
 import os
 import re
+import shutil
 import tempfile
 from contextlib import contextmanager
 from functools import partial
@@ -49,6 +50,7 @@ class VideoRenderAgent(PipelineAgent):
         episode = episode_metadata.get("episode") or {}
 
         payload = await build_video_payload(job, script, episode, audio, thumbnail, context)
+        render_mode = "remotion" if context.settings.enable_video_rendering else "static_thumbnail"
         payload_artifact = await context.artifact_service.put_json(
             f"jobs/{job_id}/video/video_payload.json",
             payload,
@@ -63,28 +65,36 @@ class VideoRenderAgent(PipelineAgent):
             plan_path = temp_path / "video_plan.json"
             output_path = temp_path / f"final.{context.settings.remotion_render_output_format}"
 
-            with local_asset_server(context) as local_asset_base_url:
-                render_payload = renderable_payload(
-                    payload,
-                    audio_key=audio["r2_key"],
-                    thumbnail_key=thumbnail["r2_key"],
-                    local_asset_base_url=local_asset_base_url,
+            if context.settings.enable_video_rendering:
+                with local_asset_server(context) as local_asset_base_url:
+                    render_payload = renderable_payload(
+                        payload,
+                        audio_key=audio["r2_key"],
+                        thumbnail_key=thumbnail["r2_key"],
+                        local_asset_base_url=local_asset_base_url,
+                    )
+                    props_path.write_text(to_pretty_json(render_payload), encoding="utf-8")
+                    await self._run_director(context, props_path, plan_path)
+                    await self._run_render(context, props_path, plan_path, output_path)
+            else:
+                props_path.write_text(to_pretty_json(payload), encoding="utf-8")
+                plan_path.write_text(
+                    to_pretty_json(static_video_plan(payload)),
+                    encoding="utf-8",
                 )
-                props_path.write_text(to_pretty_json(render_payload), encoding="utf-8")
-                await self._run_director(context, props_path, plan_path)
-                plan = plan_path.read_text(encoding="utf-8")
-                plan_artifact = await context.artifact_service.put_text(
-                    f"jobs/{job_id}/video/video_plan.json",
-                    plan,
-                    ArtifactType.VIDEO_PLAN_JSON,
-                    "application/json",
-                    job_id=job_id,
-                    episode_id=episode_id,
-                    metadata={"payload_artifact_id": str(payload_artifact["id"])},
-                )
+                await self._run_static_video(context, audio, thumbnail, output_path, temp_path)
 
-                await self._run_render(context, props_path, plan_path, output_path)
-                video_bytes = output_path.read_bytes()
+            plan = plan_path.read_text(encoding="utf-8")
+            plan_artifact = await context.artifact_service.put_text(
+                f"jobs/{job_id}/video/video_plan.json",
+                plan,
+                ArtifactType.VIDEO_PLAN_JSON,
+                "application/json",
+                job_id=job_id,
+                episode_id=episode_id,
+                metadata={"payload_artifact_id": str(payload_artifact["id"])},
+            )
+            video_bytes = output_path.read_bytes()
 
         video_artifact = await context.artifact_service.put_bytes(
             f"episodes/{episode_id}/video/final.mp4",
@@ -96,6 +106,7 @@ class VideoRenderAgent(PipelineAgent):
             metadata={
                 "payload_artifact_id": str(payload_artifact["id"]),
                 "plan_artifact_id": str(plan_artifact["id"]),
+                "render_mode": render_mode,
             },
         )
         await self._attach_video_asset(context, episode_id, video_artifact)
@@ -160,6 +171,92 @@ class VideoRenderAgent(PipelineAgent):
             ],
         )
 
+    async def _run_static_video(
+        self,
+        context: AgentContext,
+        audio: dict[str, Any],
+        thumbnail: dict[str, Any],
+        output_path: Path,
+        temp_path: Path,
+    ) -> None:
+        audio_path = temp_path / f"input-audio{artifact_suffix(audio, '.mp3')}"
+        thumbnail_path = temp_path / f"thumbnail{artifact_suffix(thumbnail, '.png')}"
+        audio_path.write_bytes(await context.storage.get_bytes(audio["r2_key"]))
+        thumbnail_path.write_bytes(await context.storage.get_bytes(thumbnail["r2_key"]))
+
+        await self._run_ffmpeg_command(
+            context,
+            [
+                "ffmpeg",
+                "-y",
+                "-loop",
+                "1",
+                "-framerate",
+                "1",
+                "-i",
+                str(thumbnail_path),
+                "-i",
+                str(audio_path),
+                "-vf",
+                "scale=1280:720:force_original_aspect_ratio=decrease,"
+                "pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-tune",
+                "stillimage",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-pix_fmt",
+                "yuv420p",
+                "-shortest",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ],
+        )
+
+    async def _run_ffmpeg_command(
+        self,
+        context: AgentContext,
+        command: list[str],
+    ) -> None:
+        if not shutil.which(command[0]):
+            raise RuntimeError(
+                "ffmpeg is required to create the static thumbnail video. "
+                "Install ffmpeg locally, or run in the Docker/Railway environment "
+                "where the Dockerfile installs it."
+            )
+
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=context.settings.remotion_render_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            process.kill()
+            await process.communicate()
+            raise RuntimeError(f"Static video command timed out: {' '.join(command)}") from exc
+
+        if process.returncode != 0:
+            output = "\n".join(
+                part.decode("utf-8", errors="replace").strip()
+                for part in (stdout, stderr)
+                if part
+            )
+            raise RuntimeError(
+                f"Static video command failed code={process.returncode}: "
+                f"{' '.join(command)}\n{output}"
+            )
+
     async def _run_remotion_command(
         self,
         context: AgentContext,
@@ -215,7 +312,11 @@ class VideoRenderAgent(PipelineAgent):
                 "mime_type": video_artifact["mime_type"],
                 "size_bytes": video_artifact.get("size_bytes"),
                 "checksum_sha256": video_artifact.get("checksum_sha256"),
-                "metadata": {"source": "remotion"},
+                "metadata": {
+                    "source": (video_artifact.get("metadata") or {}).get(
+                        "render_mode", "remotion"
+                    )
+                },
             }
         )
 
@@ -465,6 +566,44 @@ def renderable_payload(
         "audioUrl": local_asset_url(local_asset_base_url, audio_key),
         "thumbnailUrl": local_asset_url(local_asset_base_url, thumbnail_key),
     }
+
+
+def static_video_plan(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "version": 1,
+        "renderMode": "static_thumbnail",
+        "durationSeconds": payload.get("durationSeconds"),
+        "format": {
+            "width": 1280,
+            "height": 720,
+            "fps": 1,
+            "videoCodec": "h264",
+            "audioCodec": "aac",
+        },
+        "source": {
+            "audioUrl": payload.get("audioUrl"),
+            "thumbnailUrl": payload.get("thumbnailUrl"),
+        },
+    }
+
+
+def artifact_suffix(artifact: dict[str, Any], fallback: str) -> str:
+    suffix = Path(str(artifact.get("r2_key") or "")).suffix.lower()
+    if re.fullmatch(r"\.[a-z0-9]{1,8}", suffix):
+        return suffix
+
+    mime_type = str(artifact.get("mime_type") or "").lower()
+    if mime_type == "audio/wav":
+        return ".wav"
+    if mime_type in {"audio/mpeg", "audio/mp3"}:
+        return ".mp3"
+    if mime_type == "image/jpeg":
+        return ".jpg"
+    if mime_type == "image/webp":
+        return ".webp"
+    if mime_type == "image/png":
+        return ".png"
+    return fallback
 
 
 def local_asset_url(base_url: str, key: str) -> str:

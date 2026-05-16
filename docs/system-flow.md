@@ -350,12 +350,16 @@ POST /admin/generation-jobs/{job_id}/publish
 
 then the episode becomes published.
 
-If `ENABLE_VIDEO_RENDERING=true`, publishing records the episode metadata and then
-queues `video_render_queue` instead of completing the generation job immediately.
+If `ENABLE_VIDEO_RENDERING=true` or `ENABLE_YOUTUBE_UPLOADING=true`, publishing
+records the episode metadata and then queues `video_render_queue` instead of
+completing the generation job immediately.
 
 ## 10. Video Render Agent
 
-The Video Render Agent turns the generated podcast into a Remotion-rendered MP4.
+The Video Render Agent turns the generated podcast into an MP4. With
+`ENABLE_VIDEO_RENDERING=false`, it creates a lightweight static thumbnail+audio
+video with ffmpeg. With `ENABLE_VIDEO_RENDERING=true`, it creates the animated
+Remotion video.
 
 It reads:
 
@@ -372,9 +376,10 @@ jobs/{job_id}/video/video_plan.json
 episodes/{episode_id}/video/final.mp4
 ```
 
-The agent calls the independent `remotion-renderer/` package. If `GEMINI_API_KEY`
-is configured, Gemini 2.5 Flash directs the scene plan. If no Gemini key is present,
-the renderer uses a deterministic fallback plan for local testing.
+For animated renders, the agent calls the independent `remotion-renderer/`
+package. If `GEMINI_API_KEY` is configured, Gemini 2.5 Flash directs the scene
+plan. If no Gemini key is present, the renderer uses a deterministic fallback
+plan for local testing.
 
 The final MP4 is stored as a `video_mp4` artifact and attached to the episode as an
 `episode_assets` row with `asset_type='video'`. The job becomes `completed` after

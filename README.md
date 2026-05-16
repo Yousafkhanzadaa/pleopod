@@ -375,6 +375,7 @@ Recommended scheduled Railway settings:
 AI_PROVIDER=gemini
 STORAGE_BACKEND=temporary
 TEMPORARY_STORAGE_PATH=/tmp/pleopod-artifacts
+ENABLE_VIDEO_RENDERING=false
 ENABLE_YOUTUBE_UPLOADING=true
 YOUTUBE_DEFAULT_PRIVACY_STATUS=private
 AUTOPUBLISH_REGION=US and global English-language technology news
@@ -384,6 +385,12 @@ AUTOPUBLISH_REQUIRE_TRUSTED_SOURCES=true
 
 Keep `YOUTUBE_DEFAULT_PRIVACY_STATUS=private` or `unlisted` until unattended
 runs are producing videos you trust.
+
+With `ENABLE_YOUTUBE_UPLOADING=true` and `ENABLE_VIDEO_RENDERING=false`, Pleopod
+creates a lightweight static thumbnail+audio MP4 for YouTube. Set
+`ENABLE_VIDEO_RENDERING=true` only when you want the heavier animated Remotion
+render. Static MP4 creation requires `ffmpeg`; the Dockerfile installs it for
+Railway, while local macOS runs need a local ffmpeg install.
 
 ## API
 

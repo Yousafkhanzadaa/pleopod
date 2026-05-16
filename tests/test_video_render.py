@@ -11,13 +11,23 @@ from app.agents.video_render import (
     build_video_payload,
     local_storage_root,
     renderable_payload,
+    static_video_plan,
 )
 from app.models.enums import ArtifactType
 
 
 class _Storage:
+    def __init__(self) -> None:
+        self.objects = {
+            "jobs/job-1/audio/final.mp3": b"audio",
+            "jobs/job-1/thumbnail/cover.png": b"thumbnail",
+        }
+
     async def presigned_get_url(self, key: str, expires_in: int = 3600) -> str:
         return f"/tmp/{key.split('/')[-1]}"
+
+    async def get_bytes(self, key: str) -> bytes:
+        return self.objects[key]
 
 
 class _ArtifactRepo:
@@ -101,6 +111,8 @@ class _Context:
         *,
         storage_backend: str = "local",
         temporary_storage_path: Path | None = None,
+        enable_video_rendering: bool = True,
+        enable_youtube_uploading: bool = False,
     ) -> None:
         self.settings = SimpleNamespace(
             gemini_api_key=None,
@@ -108,7 +120,8 @@ class _Context:
             remotion_renderer_path="remotion-renderer",
             remotion_video_director_model="gemini-2.5-flash-lite",
             remotion_render_timeout_seconds=30,
-            enable_youtube_uploading=False,
+            enable_video_rendering=enable_video_rendering,
+            enable_youtube_uploading=enable_youtube_uploading,
             r2_public_base_url=None,
             storage_backend=storage_backend,
             local_storage_path=local_storage_path,
@@ -281,6 +294,32 @@ def test_renderable_payload_rewrites_local_assets_to_http_urls() -> None:
     assert payload["thumbnailUrl"] == "file:///tmp/cover.png"
 
 
+def test_static_video_plan_describes_thumbnail_render() -> None:
+    plan = static_video_plan(
+        {
+            "durationSeconds": 120,
+            "audioUrl": "file:///tmp/final.mp3",
+            "thumbnailUrl": "file:///tmp/cover.png",
+        }
+    )
+
+    assert plan["renderMode"] == "static_thumbnail"
+    assert plan["format"]["width"] == 1280
+    assert plan["format"]["height"] == 720
+    assert plan["source"]["audioUrl"] == "file:///tmp/final.mp3"
+
+
+@pytest.mark.asyncio
+async def test_static_video_has_clear_error_when_ffmpeg_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = VideoRenderAgent()
+    monkeypatch.setattr(video_render_module.shutil, "which", lambda command: None)
+
+    with pytest.raises(RuntimeError, match="ffmpeg is required"):
+        await agent._run_ffmpeg_command(_Context(), ["ffmpeg", "-version"])  # type: ignore[arg-type]
+
+
 def test_local_storage_root_uses_temporary_path_for_temporary_backend(tmp_path: Path) -> None:
     context = _Context(
         Path("/tmp/local-artifacts"),
@@ -345,3 +384,54 @@ async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
     ) in context.artifact_service.records
     assert context.job_repo.updated is not None
     assert context.job_repo.updated["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_video_render_agent_uses_static_thumbnail_video_when_remotion_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context = _Context(
+        tmp_path,
+        enable_video_rendering=False,
+        enable_youtube_uploading=True,
+    )
+    agent = VideoRenderAgent()
+    calls: dict[str, object] = {}
+
+    async def _run_director(self, context, props_path, plan_path) -> None:
+        raise AssertionError("Remotion director should not run for static video")
+
+    async def _run_render(self, context, props_path, plan_path, output_path) -> None:
+        raise AssertionError("Remotion render should not run for static video")
+
+    async def _run_static_video(self, context, audio, thumbnail, output_path, temp_path) -> None:
+        calls["audio_key"] = audio["r2_key"]
+        calls["thumbnail_key"] = thumbnail["r2_key"]
+        output_path.write_bytes(b"static-video")
+
+    async def _attach_video_asset(self, context, episode_id, video_artifact) -> None:
+        calls["attached_episode_id"] = episode_id
+        calls["attached_render_mode"] = video_artifact["metadata"]["render_mode"]
+
+    monkeypatch.setattr(VideoRenderAgent, "_run_director", _run_director)
+    monkeypatch.setattr(VideoRenderAgent, "_run_render", _run_render)
+    monkeypatch.setattr(VideoRenderAgent, "_run_static_video", _run_static_video)
+    monkeypatch.setattr(VideoRenderAgent, "_attach_video_asset", _attach_video_asset)
+
+    result = await agent.run(_job(), context, {})  # type: ignore[arg-type]
+
+    assert result.stop_pipeline is False
+    assert result.output_artifact_id == "video_mp4-id"
+    assert calls == {
+        "audio_key": "jobs/job-1/audio/final.mp3",
+        "thumbnail_key": "jobs/job-1/thumbnail/cover.png",
+        "attached_episode_id": "episode-1",
+        "attached_render_mode": "static_thumbnail",
+    }
+    assert (
+        ArtifactType.VIDEO_PLAN_JSON,
+        "jobs/job-1/video/video_plan.json",
+    ) in context.artifact_service.records
+    assert context.job_repo.updated is not None
+    assert context.job_repo.updated["metadata"]["video_artifact_id"] == "video_mp4-id"
