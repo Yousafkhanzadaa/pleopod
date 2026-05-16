@@ -38,6 +38,43 @@ class FakeAIProvider(AIProvider):
                 "source_urls": [],
             }
             return TextGeneration(text=json.dumps(orchestration_data))
+        if schema_name == "TopicScoutDecision" or "topic scout agent" in lower:
+            topic_data: dict[str, Any] = {
+                "topic": "AI Coding Agents in 2026",
+                "title": "AI Coding Agents Are Becoming Real Software Teammates",
+                "rationale": "Fake local timely topic for scheduled publishing tests.",
+                "source_urls": [
+                    "https://openai.com/blog/example-ai-coding-agents",
+                    "https://github.blog/example-ai-coding-agents",
+                    "https://arstechnica.com/example-ai-coding-agents",
+                ],
+                "candidates": [
+                    {
+                        "topic": "AI Coding Agents in 2026",
+                        "title": "AI Coding Agents Are Becoming Real Software Teammates",
+                        "rationale": "Fake local timely topic for scheduled publishing tests.",
+                        "source_urls": [
+                            "https://openai.com/blog/example-ai-coding-agents",
+                            "https://github.blog/example-ai-coding-agents",
+                            "https://arstechnica.com/example-ai-coding-agents",
+                        ],
+                        "score": 0.9,
+                    },
+                    {
+                        "topic": "New AI Developer Tools Launch",
+                        "title": "A New Wave of AI Developer Tools",
+                        "rationale": "Alternative fake local topic.",
+                        "source_urls": [
+                            "https://blog.google/example-ai-developer-tools",
+                            "https://theverge.com/example-ai-developer-tools",
+                            "https://techcrunch.com/example-ai-developer-tools",
+                        ],
+                        "score": 0.7,
+                    },
+                ],
+                "rejected_topics": [],
+            }
+            return TextGeneration(text=json.dumps(topic_data))
         if schema_name == "PodcastScript" or "podcast script agent" in lower:
             script_data: dict[str, Any] = {
                 "title": "The AI Podcast Pipeline",

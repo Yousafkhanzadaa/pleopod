@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -14,6 +15,8 @@ from app.models.enums import ArtifactType, JobStatus, PipelineStep
 MAX_YOUTUBE_DESCRIPTION_BYTES = 5000
 MAX_REFERENCED_CLAIMS = 8
 MAX_SOURCE_LINE_CHARS = 260
+
+logger = logging.getLogger(__name__)
 
 
 class YouTubeUploadAgent(PipelineAgent):
@@ -38,6 +41,7 @@ class YouTubeUploadAgent(PipelineAgent):
             if is_successful_upload_result(result):
                 await self._attach_youtube_asset(context, episode_id, result)
                 await self._complete_job(context, job, episode_id, result)
+                await cleanup_temporary_artifacts(context, job_id, episode_id)
                 return AgentResult(
                     output_artifact_id=str(existing_result["id"]),
                     stop_pipeline=True,
@@ -104,6 +108,7 @@ class YouTubeUploadAgent(PipelineAgent):
 
         await self._attach_youtube_asset(context, episode_id, result)
         await self._complete_job(context, job, episode_id, result)
+        await cleanup_temporary_artifacts(context, job_id, episode_id)
         return AgentResult(output_artifact_id=str(result_artifact["id"]), stop_pipeline=True)
 
     async def _run_uploader(
@@ -269,6 +274,32 @@ async def latest_source_list(context: AgentContext, job_id: str) -> list[Any]:
     except RuntimeError:
         return []
     return sources if isinstance(sources, list) else []
+
+
+async def cleanup_temporary_artifacts(
+    context: AgentContext,
+    job_id: str,
+    episode_id: str,
+) -> None:
+    if getattr(context.settings, "storage_backend", None) != "temporary":
+        return
+
+    delete_prefix = getattr(context.storage, "delete_prefix", None)
+    if not delete_prefix:
+        return
+
+    prefixes = [
+        f"jobs/{job_id}",
+        f"episodes/{episode_id}/audio",
+        f"episodes/{episode_id}/metadata",
+        f"episodes/{episode_id}/thumbnail",
+        f"episodes/{episode_id}/video",
+    ]
+    for prefix in prefixes:
+        try:
+            await delete_prefix(prefix)
+        except OSError:
+            logger.warning("Failed to cleanup temporary artifact prefix=%s", prefix, exc_info=True)
 
 
 def build_description(

@@ -20,6 +20,27 @@ FastAPI first orchestrates the requested title into a normalized job payload,
 stores the job in Supabase, sends a small queue message, and then the worker
 processes that job step by step.
 
+For scheduled autonomous publishing, `pleopod-autopublish` replaces the HTTP
+entry point and infinite worker loop with one finite run:
+
+```mermaid
+flowchart TD
+  A["Railway cron starts pleopod-autopublish"] --> B["Acquire autopublish DB lock"]
+  B --> C["Topic Scout uses Gemini Google Search grounding"]
+  C --> D["Keep trusted direct sources and trend evidence"]
+  D --> E["Create generation_jobs row with source URLs"]
+  E --> F["Run existing agents directly in order"]
+  F --> G["Render video and upload to YouTube when enabled"]
+  G --> H["Cleanup temporary artifacts"]
+  H --> I["Process exits"]
+```
+
+The Topic Scout only chooses the initial topic and payload. It uses Gemini's
+Google Search grounding for discovery, filters factual source URLs through a
+trusted-domain list, and keeps community pages only as trend evidence. The
+normal research, verification, audio, video, and upload stages still produce the
+publishable episode.
+
 ```mermaid
 flowchart TD
   A["Admin creates podcast job"] --> B["FastAPI Orchestration Agent"]

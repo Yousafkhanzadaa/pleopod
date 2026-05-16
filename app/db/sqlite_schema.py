@@ -163,6 +163,14 @@ SQLITE_SCHEMA = (
       updated_at real not null
     )
     """,
+    """
+    create table if not exists automation_locks (
+      name text primary key,
+      owner_id text not null,
+      expires_at text not null,
+      updated_at text not null default (CURRENT_TIMESTAMP)
+    )
+    """,
     "create index if not exists idx_generation_jobs_status on generation_jobs(status)",
     "create index if not exists idx_generation_jobs_created_at on generation_jobs(created_at desc)",
     "create index if not exists idx_agent_runs_job_id on agent_runs(job_id)",

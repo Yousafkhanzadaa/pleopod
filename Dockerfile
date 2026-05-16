@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     && npm ci
 
 COPY remotion-renderer ./remotion-renderer
+COPY youtube-uploader ./youtube-uploader
 
 EXPOSE 8000
 

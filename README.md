@@ -204,7 +204,7 @@ Most settings are documented in `.env.example`. The most important groups are:
 | `SUPABASE_URL` | Supabase project URL. |
 | `SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY` | Modern Supabase API keys. |
 | `SUPABASE_JWKS_URL` / `SUPABASE_JWKS_JSON` | JWT verification configuration. |
-| `STORAGE_BACKEND` | `local` or `r2`. |
+| `STORAGE_BACKEND` | `local`, `temporary`, or `r2`. Use `temporary` for scheduled publish runs that should delete generated files after YouTube upload. |
 | `R2_*` | Cloudflare R2 credentials and bucket config. |
 | `AI_PROVIDER` | `fake` or `gemini`. |
 | `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini`. |
@@ -212,6 +212,7 @@ Most settings are documented in `.env.example`. The most important groups are:
 | `OPENAI_API_KEY` | Required when thumbnail generation resolves to OpenAI. |
 | `OPENAI_IMAGE_MODEL` | Defaults to `gpt-image-2` for generated thumbnails. |
 | `TTS_GENERATION_MODE` | `chunked` for safer Gemini TTS calls, or `single_request` for short episodes only. |
+| `AUTOPUBLISH_*` | Topic Scout settings for scheduled self-running publishing jobs. |
 | `MAX_AGENT_ATTEMPTS` | Retry budget for failed queue messages. |
 | `QUEUE_VISIBILITY_TIMEOUT_SECONDS` | Visibility timeout for long-running jobs. |
 | `ENABLE_VIDEO_RENDERING` | Enables Remotion MP4 generation after publishing. |
@@ -333,6 +334,57 @@ certificate problem, not a localhost deployment problem.
 
 See `docs/youtube-upload-system.md` and `youtube-uploader/README.md`.
 
+## Scheduled Autopublish
+
+For Railway cron-style deployments, use the finite autopublish command instead
+of the always-on API/worker pair:
+
+```bash
+pleopod-autopublish
+```
+
+For twice-daily publishing, configure the Railway service command as
+`pleopod-autopublish` and set a cron schedule such as `0 7,19 * * *`.
+Railway cron schedules are evaluated in UTC.
+
+To test only the Topic Scout Agent without creating a job or running the podcast
+pipeline:
+
+```bash
+pleopod-autopublish scout
+```
+
+The scout command uses Gemini Google Search grounding, filters direct sources
+through the trusted-domain list, prints the selected payload, and exits without
+creating a job.
+
+The scheduled autopublish command:
+
+- acquires a database lock so only one autonomous run owns the schedule
+- asks the Topic Scout Agent to find a timely, source-backed tech topic using
+  Gemini Google Search grounding
+- keeps direct source URLs only from trusted domains; trend pages are kept as
+  supporting evidence, not factual authority
+- creates a normal `generation_jobs` row with `auto_publish=true`
+- runs the existing pipeline directly through publish, video, and YouTube upload
+- exits when the job completes, fails, or is skipped because another run is active
+
+Recommended scheduled Railway settings:
+
+```env
+AI_PROVIDER=gemini
+STORAGE_BACKEND=temporary
+TEMPORARY_STORAGE_PATH=/tmp/pleopod-artifacts
+ENABLE_YOUTUBE_UPLOADING=true
+YOUTUBE_DEFAULT_PRIVACY_STATUS=private
+AUTOPUBLISH_REGION=US and global English-language technology news
+AUTOPUBLISH_MIN_SOURCE_URLS=3
+AUTOPUBLISH_REQUIRE_TRUSTED_SOURCES=true
+```
+
+Keep `YOUTUBE_DEFAULT_PRIVACY_STATUS=private` or `unlisted` until unattended
+runs are producing videos you trust.
+
 ## API
 
 Admin endpoints accept either:
@@ -430,6 +482,11 @@ docker compose up --build
 The compose file mounts `./local-artifacts` for local storage. Production
 deployments should run API and worker as separate services with managed Postgres,
 R2-compatible storage, and appropriate secret management.
+
+For scheduled Railway publishing runs, `STORAGE_BACKEND=temporary` writes artifacts
+to `TEMPORARY_STORAGE_PATH` during generation and removes generated job/video files
+after a successful YouTube upload. The database still keeps lightweight status and
+YouTube URL metadata.
 
 ## Troubleshooting
 

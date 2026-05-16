@@ -39,8 +39,9 @@ class Settings(BaseSettings):
     supabase_jwks_json: str | None = None
     supabase_legacy_jwt_secret: str | None = None
 
-    storage_backend: Literal["r2", "local"] = "local"
+    storage_backend: Literal["r2", "local", "temporary"] = "local"
     local_storage_path: Path = Path("local-artifacts")
+    temporary_storage_path: Path = Path("/tmp/pleopod-artifacts")
     r2_account_id: str | None = None
     r2_access_key_id: str | None = None
     r2_secret_access_key: str | None = None
@@ -74,6 +75,37 @@ class Settings(BaseSettings):
     tts_generation_mode: Literal["single_request", "chunked"] = "chunked"
     max_tts_chunk_chars: int = 1200
 
+    autopublish_topic_model: str = LOW_COST_GEMINI_TEXT_MODEL
+    autopublish_category: str = "Tech"
+    autopublish_audience: str = "curious tech listeners and software builders"
+    autopublish_target_duration_seconds: int = 600
+    autopublish_language: str = "en"
+    autopublish_tone: str = "clear, smart, conversational, timely"
+    autopublish_region: str = "US and global English-language technology news"
+    autopublish_recent_job_limit: int = 25
+    autopublish_min_source_urls: int = 3
+    autopublish_require_trusted_sources: bool = True
+    autopublish_trusted_source_domains: str = (
+        "openai.com,googleblog.com,blog.google,deepmind.google,ai.google.dev,"
+        "developers.googleblog.com,anthropic.com,meta.com,about.fb.com,ai.meta.com,"
+        "microsoft.com,blogs.microsoft.com,azure.microsoft.com,github.blog,github.com,"
+        "nvidia.com,blogs.nvidia.com,apple.com,amazon.science,aws.amazon.com,x.ai,"
+        "perplexity.ai,arxiv.org,nature.com,science.org,nist.gov,nvd.nist.gov,cisa.gov,"
+        "sec.gov,ftc.gov,justice.gov,europa.eu,whitehouse.gov,theverge.com,"
+        "arstechnica.com,wired.com,technologyreview.com,techcrunch.com,semianalysis.com,"
+        "stratechery.com,bloomberg.com,reuters.com,apnews.com,cnbc.com,wsj.com,ft.com,"
+        "axios.com,theinformation.com,platformer.news,404media.co,engadget.com,cnet.com,"
+        "zdnet.com,venturebeat.com,theregister.com,tomshardware.com,bleepingcomputer.com,"
+        "krebsonsecurity.com,securityweek.com,darkreading.com,cyberscoop.com,nytimes.com,"
+        "washingtonpost.com,bbc.com,theguardian.com,fortune.com"
+    )
+    autopublish_trend_source_domains: str = (
+        "news.ycombinator.com,github.com,reddit.com,producthunt.com"
+    )
+    autopublish_lock_ttl_seconds: int = 7200
+    autopublish_max_runtime_seconds: int = 7200
+    autopublish_created_by: str = "autopublish"
+
     enable_video_rendering: bool = False
     remotion_renderer_path: Path = Path("remotion-renderer")
     remotion_video_director_model: str = LOW_COST_GEMINI_TEXT_MODEL
@@ -93,6 +125,7 @@ class Settings(BaseSettings):
 
     def model_post_init(self, __context: Any) -> None:
         self.local_storage_path = resolve_project_path(self.local_storage_path)
+        self.temporary_storage_path = resolve_project_path(self.temporary_storage_path)
         self.remotion_renderer_path = resolve_project_path(self.remotion_renderer_path)
         self.youtube_uploader_path = resolve_project_path(self.youtube_uploader_path)
 

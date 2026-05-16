@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.providers.storage import R2ObjectStorage, public_object_url
+from app.providers.storage import R2ObjectStorage, TemporaryObjectStorage, public_object_url
 
 
 class _R2Client:
@@ -51,3 +51,18 @@ def test_public_object_url_allows_real_public_base() -> None:
         public_object_url(settings, "jobs/job-1/thumbnail/cover.png")
         == "https://media.example.com/jobs/job-1/thumbnail/cover.png"
     )
+
+
+@pytest.mark.asyncio
+async def test_temporary_storage_is_disk_backed_and_deletes_prefix(tmp_path) -> None:
+    storage = TemporaryObjectStorage(tmp_path)
+
+    await storage.put_bytes("jobs/job-1/audio/final.mp3", b"audio", "audio/mpeg")
+    await storage.put_bytes("jobs/job-2/audio/final.mp3", b"other", "audio/mpeg")
+
+    assert await storage.get_bytes("jobs/job-1/audio/final.mp3") == b"audio"
+
+    await storage.delete_prefix("jobs/job-1")
+
+    assert not (tmp_path / "jobs/job-1").exists()
+    assert (tmp_path / "jobs/job-2/audio/final.mp3").exists()

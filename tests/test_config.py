@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from app.core.config import PROJECT_ROOT, Settings
@@ -21,6 +23,11 @@ def test_default_gemini_models_use_low_cost_development_profile(
         "OPENAI_IMAGE_QUALITY",
         "OPENAI_IMAGE_OUTPUT_FORMAT",
         "TTS_GENERATION_MODE",
+        "TEMPORARY_STORAGE_PATH",
+        "AUTOPUBLISH_TOPIC_MODEL",
+        "AUTOPUBLISH_REQUIRE_TRUSTED_SOURCES",
+        "AUTOPUBLISH_TRUSTED_SOURCE_DOMAINS",
+        "AUTOPUBLISH_TREND_SOURCE_DOMAINS",
         "REMOTION_VIDEO_DIRECTOR_MODEL",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -40,6 +47,12 @@ def test_default_gemini_models_use_low_cost_development_profile(
     assert settings.openai_image_size == "1280x720"
     assert settings.openai_image_quality == "medium"
     assert settings.tts_generation_mode == "chunked"
+    assert settings.autopublish_topic_model == "gemini-2.5-flash-lite"
+    assert settings.autopublish_target_duration_seconds == 600
+    assert settings.autopublish_min_source_urls == 3
+    assert settings.autopublish_require_trusted_sources is True
+    assert "openai.com" in settings.autopublish_trusted_source_domains
+    assert "news.ycombinator.com" in settings.autopublish_trend_source_domains
     assert settings.remotion_video_director_model == "gemini-2.5-flash-lite"
 
 
@@ -78,6 +91,7 @@ def test_default_runtime_is_local_first() -> None:
     assert "/local-data/pleopod.db" in settings.async_database_url
     assert str(PROJECT_ROOT) in settings.async_database_url
     assert settings.local_storage_path == PROJECT_ROOT / "local-artifacts"
+    assert settings.temporary_storage_path == Path("/tmp/pleopod-artifacts")
 
 
 def test_relative_runtime_paths_resolve_from_project_root() -> None:
@@ -85,6 +99,7 @@ def test_relative_runtime_paths_resolve_from_project_root() -> None:
         _env_file=None,
         database_url="sqlite+aiosqlite:///./local-data/custom.db",
         local_storage_path="local-artifacts",
+        temporary_storage_path="tmp-artifacts",
         remotion_renderer_path="remotion-renderer",
         youtube_uploader_path="youtube-uploader",
     )
@@ -93,8 +108,20 @@ def test_relative_runtime_paths_resolve_from_project_root() -> None:
         f"sqlite+aiosqlite:///{(PROJECT_ROOT / 'local-data/custom.db').as_posix()}"
     )
     assert settings.local_storage_path == PROJECT_ROOT / "local-artifacts"
+    assert settings.temporary_storage_path == PROJECT_ROOT / "tmp-artifacts"
     assert settings.remotion_renderer_path == PROJECT_ROOT / "remotion-renderer"
     assert settings.youtube_uploader_path == PROJECT_ROOT / "youtube-uploader"
+
+
+def test_temporary_storage_backend_is_configurable() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        storage_backend="temporary",
+        temporary_storage_path="/tmp/custom-pleopod-artifacts",
+    )
+
+    assert settings.storage_backend == "temporary"
+    assert settings.temporary_storage_path == Path("/tmp/custom-pleopod-artifacts")
 
 
 def test_postgres_url_selects_postgres_and_pgmq_when_backend_is_auto() -> None:

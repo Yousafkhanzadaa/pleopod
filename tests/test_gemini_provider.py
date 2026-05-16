@@ -33,3 +33,21 @@ async def test_generate_image_uses_imagen_api_for_imagen_models() -> None:
     assert image.prompt == "make a thumbnail"
     assert models.calls[0]["model"] == "imagen-4.0-fast-generate-001"
     assert models.calls[0]["prompt"] == "make a thumbnail"
+
+
+def test_extract_response_text_reads_candidate_parts_when_response_text_is_empty() -> None:
+    provider = GeminiAIProvider.__new__(GeminiAIProvider)
+    response = SimpleNamespace(
+        text="",
+        candidates=[
+            SimpleNamespace(
+                content=SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(text='{"topic":"A sourced topic"}'),
+                    ]
+                )
+            )
+        ],
+    )
+
+    assert provider._extract_response_text(response) == '{"topic":"A sourced topic"}'

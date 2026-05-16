@@ -94,7 +94,11 @@ class GeminiAIProvider(AIProvider):
             config=types.GenerateContentConfig(**config_kwargs),
         )
         citations = self._extract_citations(response)
-        return TextGeneration(text=response.text or "", citations=citations, raw={})
+        return TextGeneration(
+            text=self._extract_response_text(response),
+            citations=citations,
+            raw=self._response_debug_metadata(response, citations),
+        )
 
     @retry(wait=wait_exponential(multiplier=1, min=1, max=20), stop=stop_after_attempt(3))
     async def generate_image(self, prompt: str, model: str) -> ImageGeneration:
@@ -324,3 +328,44 @@ class GeminiAIProvider(AIProvider):
                     )
                 )
         return citations
+
+    def _extract_response_text(self, response: Any) -> str:
+        try:
+            text = getattr(response, "text", None)
+        except Exception:
+            text = None
+        if text:
+            return str(text)
+
+        parts = list(getattr(response, "parts", None) or [])
+        for candidate in getattr(response, "candidates", None) or []:
+            content = getattr(candidate, "content", None)
+            parts.extend(getattr(content, "parts", None) or [])
+
+        chunks: list[str] = []
+        for part in parts:
+            text = getattr(part, "text", None)
+            if text:
+                chunks.append(str(text))
+        return "\n".join(chunks).strip()
+
+    def _response_debug_metadata(
+        self,
+        response: Any,
+        citations: list[Citation],
+    ) -> dict[str, Any]:
+        finish_reasons: list[str] = []
+        part_count = 0
+        for candidate in getattr(response, "candidates", None) or []:
+            finish_reason = getattr(candidate, "finish_reason", None)
+            if finish_reason is not None:
+                finish_reasons.append(str(finish_reason))
+            content = getattr(candidate, "content", None)
+            part_count += len(getattr(content, "parts", None) or [])
+
+        return {
+            "citation_count": len(citations),
+            "finish_reasons": finish_reasons,
+            "candidate_count": len(getattr(response, "candidates", None) or []),
+            "part_count": part_count,
+        }

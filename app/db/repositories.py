@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -80,6 +80,50 @@ def _json_cast(session: AsyncSession, name: str) -> str:
 
 def _updated_at_sql(session: AsyncSession) -> str:
     return "CURRENT_TIMESTAMP" if _is_sqlite(session) else "now()"
+
+
+def _utc_iso(value: datetime | None = None) -> str:
+    return (value or datetime.now(UTC)).isoformat(timespec="seconds")
+
+
+class AutomationLockRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def acquire(self, name: str, owner_id: str, ttl_seconds: int) -> bool:
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(seconds=max(1, ttl_seconds))
+        result = await self.session.execute(
+            text(
+                """
+                insert into automation_locks (name, owner_id, expires_at, updated_at)
+                values (:name, :owner_id, :expires_at, :now)
+                on conflict (name)
+                do update set owner_id = excluded.owner_id,
+                              expires_at = excluded.expires_at,
+                              updated_at = excluded.updated_at
+                where automation_locks.expires_at <= :now
+                   or automation_locks.owner_id = :owner_id
+                returning owner_id
+                """
+            ),
+            {
+                "name": name,
+                "owner_id": owner_id,
+                "expires_at": _utc_iso(expires_at),
+                "now": _utc_iso(now),
+            },
+        )
+        await self.session.commit()
+        row = result.mappings().first()
+        return bool(row and row["owner_id"] == owner_id)
+
+    async def release(self, name: str, owner_id: str) -> None:
+        await self.session.execute(
+            text("delete from automation_locks where name = :name and owner_id = :owner_id"),
+            {"name": name, "owner_id": owner_id},
+        )
+        await self.session.commit()
 
 
 class JobRepository(JobStore):

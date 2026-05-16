@@ -43,6 +43,23 @@ class ResearchDossier(AgentOutputModel):
     claims: list[ResearchClaim] = Field(default_factory=list)
 
 
+class TopicScoutCandidate(AgentOutputModel):
+    topic: str = Field(min_length=3)
+    title: str = Field(min_length=3)
+    rationale: str = ""
+    source_urls: list[str] = Field(default_factory=list)
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class TopicScoutDecision(AgentOutputModel):
+    topic: str = Field(min_length=3)
+    title: str = Field(min_length=3)
+    rationale: str = ""
+    source_urls: list[str] = Field(default_factory=list)
+    candidates: list[TopicScoutCandidate] = Field(default_factory=list)
+    rejected_topics: list[str] = Field(default_factory=list)
+
+
 class ScriptSpeaker(AgentOutputModel):
     name: str = Field(min_length=1)
     role: str | None = None

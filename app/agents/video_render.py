@@ -473,7 +473,7 @@ def local_asset_url(base_url: str, key: str) -> str:
 
 @contextmanager
 def local_asset_server(context: AgentContext):
-    if getattr(context.settings, "storage_backend", None) != "local":
+    if getattr(context.settings, "storage_backend", None) not in {"local", "temporary"}:
         yield None
         return
 
@@ -499,6 +499,11 @@ def local_storage_root(context: AgentContext) -> Path | None:
     storage_root = getattr(context.storage, "root", None)
     if storage_root is not None:
         return Path(storage_root).resolve()
+
+    if getattr(context.settings, "storage_backend", None) == "temporary":
+        settings_root = getattr(context.settings, "temporary_storage_path", None)
+        if settings_root is not None:
+            return Path(settings_root).resolve()
 
     settings_root = getattr(context.settings, "local_storage_path", None)
     if settings_root is not None:

@@ -136,9 +136,10 @@ Configuration lives in `app/core/config.py` and is implemented with `pydantic-se
 
 - Runtime: `ENVIRONMENT`, `LOG_LEVEL`, `API_HOST`, `API_PORT`, `ADMIN_API_KEY`
 - Database/Supabase: `DATABASE_URL`, `SUPABASE_URL`, key variants, JWT settings
-- Storage: `STORAGE_BACKEND`, local storage path, R2 account and bucket settings
+- Storage: `STORAGE_BACKEND`, local/temporary storage paths, R2 account and bucket settings
 - AI: provider selection, Gemini API key, OpenAI API key, and separate model names for orchestration/research/script/verification/TTS/thumbnail image
 - Pipeline behavior: approval gates, retry count, queue visibility timeout, poll interval, export format, TTS generation mode/chunk size
+- Scheduled autopublish: Topic Scout model, audience, region, source URL minimum, runtime limit, and lock TTL
 
 ### Important Computed Settings
 
@@ -513,6 +514,23 @@ What happens:
 
 Important design point: the request only schedules work. It does not run work.
 
+### 1a. Scheduled Autopublish
+
+Command: `pleopod-autopublish`
+
+This is the Railway-cron-friendly path. It does not expose HTTP and does not run
+the infinite queue worker. Instead, it:
+
+- acquires an `automation_locks` row named `autopublish`
+- asks the Topic Scout Agent for a timely, source-backed topic
+- creates a normal `generation_jobs` row with `auto_publish=true`
+- runs the existing pipeline stages directly in sequence
+- exits after completion, failure, timeout, or lock skip
+
+The Topic Scout Agent is intentionally narrow. It chooses the initial payload and
+source URLs; the Research Agent and Fact Verification Agent still handle factual
+grounding before publishing.
+
 ### 2. Research Agent
 
 File: `app/agents/research.py`
@@ -770,6 +788,7 @@ Storage is abstracted behind `ObjectStorage`.
 ### Supported Backends
 
 - `LocalObjectStorage`
+- `TemporaryObjectStorage`
 - `R2ObjectStorage`
 
 ### Local Mode
@@ -781,6 +800,16 @@ This is useful for:
 - offline development
 - tests
 - debugging artifact contents
+
+### Temporary Mode
+
+Uses the same disk-backed behavior as local storage during generation, rooted at
+`TEMPORARY_STORAGE_PATH`. After a successful YouTube upload, the YouTube upload
+agent deletes generated job artifacts and episode video/metadata files. It keeps
+the lightweight database records and the tiny YouTube upload result receipt.
+
+This is useful for scheduled publisher runs where Railway should not retain large
+audio/video/image artifacts after the video is already on YouTube.
 
 ### R2 Mode
 
@@ -947,6 +976,9 @@ Recommended local fake mode:
 - `STORAGE_BACKEND=local`
 
 That lets a developer run both API and worker without Gemini or R2.
+
+For scheduled production-style publishing jobs, `STORAGE_BACKEND=temporary` keeps
+large artifacts on ephemeral disk only until YouTube upload succeeds.
 
 ### Docker
 

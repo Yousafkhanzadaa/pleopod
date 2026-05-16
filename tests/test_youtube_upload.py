@@ -13,10 +13,16 @@ from app.models.enums import ArtifactType
 
 
 class _Storage:
+    def __init__(self) -> None:
+        self.deleted_prefixes: list[str] = []
+
     async def get_bytes(self, key: str) -> bytes:
         if key.endswith(".mp4"):
             return b"video"
         return b"thumb"
+
+    async def delete_prefix(self, prefix: str) -> None:
+        self.deleted_prefixes.append(prefix)
 
 
 class _ArtifactRepo:
@@ -69,6 +75,7 @@ class _Context:
         existing_upload_result: dict | None = None,
         latest_upload_result: dict | None = None,
         sources: list[dict] | None = None,
+        storage_backend: str = "local",
     ) -> None:
         self.latest_upload_result = latest_upload_result
         self.sources = sources if sources is not None else _sources()
@@ -82,6 +89,7 @@ class _Context:
             youtube_upload_timeout_seconds=30,
             youtube_notify_subscribers=False,
             youtube_self_declared_made_for_kids=False,
+            storage_backend=storage_backend,
         )
         self.storage = _Storage()
         self.artifact_repo = _ArtifactRepo(existing_upload_result)
@@ -286,6 +294,37 @@ async def test_youtube_upload_agent_writes_manifest_result_and_completes_job(
 
 
 @pytest.mark.asyncio
+async def test_youtube_upload_cleans_temporary_artifacts_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _Context(storage_backend="temporary")
+    agent = YouTubeUploadAgent()
+
+    async def _run_uploader(self, context, manifest_path, result_path, dry_run=False) -> None:
+        result_path.write_text(
+            '{"videoId":"yt-123","youtubeUrl":"https://www.youtube.com/watch?v=yt-123",'
+            '"privacyStatus":"private","thumbnailUploaded":true}',
+            encoding="utf-8",
+        )
+
+    async def _attach_youtube_asset(self, context, episode_id, result) -> None:
+        return None
+
+    monkeypatch.setattr(YouTubeUploadAgent, "_run_uploader", _run_uploader)
+    monkeypatch.setattr(YouTubeUploadAgent, "_attach_youtube_asset", _attach_youtube_asset)
+
+    await agent.run(_job(), context, {})  # type: ignore[arg-type]
+
+    assert context.storage.deleted_prefixes == [
+        "jobs/job-1",
+        "episodes/episode-1/audio",
+        "episodes/episode-1/metadata",
+        "episodes/episode-1/thumbnail",
+        "episodes/episode-1/video",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_youtube_upload_dry_run_does_not_require_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -308,6 +347,7 @@ async def test_youtube_upload_dry_run_does_not_require_credentials(
 
     assert result.stop_pipeline is True
     assert attached is False
+    assert context.storage.deleted_prefixes == []
     assert context.job_repo.updated is None
     assert context.artifact_service.records[1][2] == {"ok": True, "manifest": {}}
 

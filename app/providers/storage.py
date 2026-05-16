@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from urllib.parse import urlparse
@@ -41,6 +42,9 @@ class ObjectStorage(ABC):
     async def get_text(self, key: str) -> str:
         return (await self.get_bytes(key)).decode("utf-8")
 
+    async def delete_prefix(self, prefix: str) -> None:
+        return None
+
 
 class LocalObjectStorage(ObjectStorage):
     def __init__(self, root: Path):
@@ -65,6 +69,17 @@ class LocalObjectStorage(ObjectStorage):
 
     async def presigned_get_url(self, key: str, expires_in: int = 3600) -> str:
         return str(self._path(key).resolve())
+
+    async def delete_prefix(self, prefix: str) -> None:
+        path = self._path(prefix)
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+
+
+class TemporaryObjectStorage(LocalObjectStorage):
+    """Disk-backed ephemeral storage; cleanup is explicit after successful upload."""
 
 
 class R2ObjectStorage(ObjectStorage):
@@ -121,4 +136,6 @@ def public_object_url(settings: Settings, key: str) -> str | None:
 def create_storage(settings: Settings) -> ObjectStorage:
     if settings.storage_backend == "r2":
         return R2ObjectStorage(settings)
+    if settings.storage_backend == "temporary":
+        return TemporaryObjectStorage(settings.temporary_storage_path)
     return LocalObjectStorage(settings.local_storage_path)

@@ -6,7 +6,12 @@ from types import SimpleNamespace
 import pytest
 
 import app.agents.video_render as video_render_module
-from app.agents.video_render import VideoRenderAgent, build_video_payload, renderable_payload
+from app.agents.video_render import (
+    VideoRenderAgent,
+    build_video_payload,
+    local_storage_root,
+    renderable_payload,
+)
 from app.models.enums import ArtifactType
 
 
@@ -90,7 +95,13 @@ class _JobRepo:
 
 
 class _Context:
-    def __init__(self, local_storage_path: Path = Path("/tmp")) -> None:
+    def __init__(
+        self,
+        local_storage_path: Path = Path("/tmp"),
+        *,
+        storage_backend: str = "local",
+        temporary_storage_path: Path | None = None,
+    ) -> None:
         self.settings = SimpleNamespace(
             gemini_api_key=None,
             remotion_render_output_format="mp4",
@@ -99,8 +110,9 @@ class _Context:
             remotion_render_timeout_seconds=30,
             enable_youtube_uploading=False,
             r2_public_base_url=None,
-            storage_backend="local",
+            storage_backend=storage_backend,
             local_storage_path=local_storage_path,
+            temporary_storage_path=temporary_storage_path or local_storage_path,
         )
         self.storage = _Storage()
         self.artifact_repo = _ArtifactRepo()
@@ -267,6 +279,16 @@ def test_renderable_payload_rewrites_local_assets_to_http_urls() -> None:
         == "http://127.0.0.1:51234/jobs/job-1/thumbnail/cover%20image.png"
     )
     assert payload["thumbnailUrl"] == "file:///tmp/cover.png"
+
+
+def test_local_storage_root_uses_temporary_path_for_temporary_backend(tmp_path: Path) -> None:
+    context = _Context(
+        Path("/tmp/local-artifacts"),
+        storage_backend="temporary",
+        temporary_storage_path=tmp_path / "temporary-artifacts",
+    )
+
+    assert local_storage_root(context) == (tmp_path / "temporary-artifacts").resolve()
 
 
 @pytest.mark.asyncio
