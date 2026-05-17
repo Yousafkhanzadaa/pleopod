@@ -10,6 +10,8 @@ close to production shape: FastAPI for the control plane, SQLite/local files for
 local development, Supabase Postgres and Queues plus Cloudflare R2 as production
 adapters, Gemini for AI work, and Remotion for optional video rendering.
 
+``Youtube:`` [Pleopod](https://youtube.com/@pleopodtimes)
+
 ## What It Does
 
 - Accepts a podcast title and turns it into a normalized generation job.
