@@ -115,7 +115,7 @@ def topic_scout_prompt(settings: Settings, recent_jobs: list[dict[str, Any]]) ->
     return f"""
 You are Pleopod's podcast topic editor.
 
-Pick one technology topic for today's podcast episode.
+Pick one very fresh news topic for today's podcast episode.
 Current UTC datetime: {datetime.now(UTC).isoformat(timespec="seconds")}
 
 Target audience:
@@ -127,11 +127,23 @@ Signal focus:
 Already used topics and titles. Do not repeat or rephrase these:
 {to_pretty_json(recent_topics)}
 
-Use live Google Search grounding. Find a fresh, popular story that many people
-would actually want to hear discussed in a podcast today. Prefer topics with
-broad curiosity, clear stakes, and enough depth for a full conversation. Avoid
-niche maintenance updates, evergreen explainers, rumors, and anything already
-covered above.
+Use live Google Search grounding. Find a very fresh, popular story that many
+people would actually want to hear discussed in a podcast today. Prioritize
+developments from the last 24-48 hours when possible, and only choose older
+stories if they are still actively developing today.
+
+Editorial lanes:
+- technology and AI
+- biotech, health science, and biosecurity
+- business, markets, startups, and major companies
+- politics, policy, regulation, geopolitics, and elections when they directly
+  affect technology, AI, biotech, business, platforms, cybersecurity, energy,
+  chips, or the internet
+
+Prefer topics with broad curiosity, clear stakes, credible reporting, and
+enough depth for a full conversation. Avoid niche maintenance updates,
+evergreen explainers, soft rumors, generic trend pieces, and anything already
+covered above. Do not rephrase a recent topic as a new one.
 
 Return exactly one best topic. The topic and title are the priority.
 Return JSON only, with no extra keys:
@@ -384,7 +396,7 @@ You are Pleopod's podcast topic editor.
 Attempt {attempt} of {TOPIC_SCOUT_MAX_SELECTION_ATTEMPTS}.
 
 Your previous topic was too close to an already used topic. Choose a completely
-different current technology story that a broad podcast audience would care
+different, very fresh current story that a broad podcast audience would care
 about.
 
 Already used topics and titles. Do not repeat or rephrase these:
@@ -396,8 +408,11 @@ Previous rejected decision, do not repeat these topics at all:
 Why it was considered already used:
 {to_pretty_json(duplicate_match)}
 
-Use live Google Search grounding. Return exactly one best podcast topic. The
-topic and title are the priority.
+Use live Google Search grounding. Prefer developments from the last 24-48
+hours across technology, AI, biotech, business, and politics or policy when
+they affect technology, AI, biotech, business, cybersecurity, energy, chips,
+platforms, or the internet. Return exactly one best podcast topic. The topic
+and title are the priority.
 
 Return JSON only, with no extra keys:
 {{
