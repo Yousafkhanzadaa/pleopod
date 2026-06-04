@@ -86,7 +86,7 @@ def _config(source_transcript: str) -> dict:
         "export_format": "wav",
         "generation_mode": "single_request",
         "max_source_chunk_chars": 1200,
-        "speakers": [{"speaker": "Arman", "voice_name": "Charon", "style": "warm"}],
+        "speakers": [{"speaker": "Arman", "voice_name": "Algenib", "style": "low-pitched"}],
         "chunks": [
             {
                 "index": 1,

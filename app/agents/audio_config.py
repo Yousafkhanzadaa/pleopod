@@ -10,7 +10,9 @@ from app.core.tts import GEMINI_TTS_VOICE_NAMES, coerce_gemini_tts_voice_name
 from app.models.enums import ArtifactType, PipelineStep
 
 _TTS_PREAMBLE_RE = re.compile(
-    r"^\s*TTS\s+the\s+following\s+conversation\s+between\s+[^:\n]+:\s*", re.IGNORECASE
+    r"^\s*TTS\s+the\s+following\s+"
+    r"(?:conversation\s+between|talk\s+by|monologue\s+by)\s+[^:\n]+:\s*",
+    re.IGNORECASE,
 )
 _TRANSCRIPT_HEADER_RE = re.compile(r"^\s*#{0,6}\s*TRANSCRIPT:?\s*", re.IGNORECASE)
 GEMINI_TTS_SAFE_SOURCE_CHARS = 1200
@@ -37,7 +39,7 @@ class AudioConfigAgent(PipelineAgent):
 
 
 def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, Any]:
-    speakers = script["speakers"][:2]
+    speakers = script["speakers"][:1]
     transcript = normalize_tts_transcript(script["transcript"])
     if not transcript:
         raise ValueError("Verified script transcript is empty")
@@ -108,7 +110,7 @@ def tts_config_needs_rebuild(
     ) > GEMINI_TTS_SAFE_SOURCE_CHARS:
         return True
     speakers = config.get("speakers") or []
-    if not speakers or len(speakers) > 2:
+    if len(speakers) != 1:
         return True
     for speaker in speakers:
         voice_name = str(speaker.get("voice_name") or "").strip().lower()
@@ -141,15 +143,23 @@ def source_transcript_from_tts_prompt(prompt: str) -> str:
 def build_tts_prompt(transcript_chunk: str, speakers: list[dict[str, Any]]) -> str:
     speaker_names = " and ".join(speaker["name"] for speaker in speakers)
     style_instruction = speaker_style_instruction(speakers)
-    continuity_instruction = (
-        "Keep each speaker's voice identity, pacing, and tone consistent across "
-        "all segments of this episode."
-    )
+    if len(speakers) == 1:
+        continuity_instruction = (
+            f"Keep {speakers[0]['name']}'s low-pitched voice identity, pacing, and tone "
+            "consistent across all segments of this short video talk."
+        )
+        tts_instruction = f"TTS the following talk by {speaker_names}:"
+    else:
+        continuity_instruction = (
+            "Keep each speaker's voice identity, pacing, and tone consistent across "
+            "all segments of this episode."
+        )
+        tts_instruction = f"TTS the following conversation between {speaker_names}:"
     instructions = [item for item in (style_instruction, continuity_instruction) if item]
     instruction_text = "\n".join(instructions)
     preamble = f"{instruction_text}\n\n" if instruction_text else ""
     return f"""
-{preamble}TTS the following conversation between {speaker_names}:
+{preamble}{tts_instruction}
 
 ### TRANSCRIPT
 {transcript_chunk.strip()}

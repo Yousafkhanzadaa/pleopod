@@ -21,6 +21,15 @@ python -m youtube_uploader auth \
   --out ./tokens.json
 ```
 
+```bash
+python -m youtube_uploader exchange-code \
+  --code "CODE_FROM_REDIRECT" \
+  --client-id "$YOUTUBE_CLIENT_ID" \
+  --client-secret "$YOUTUBE_CLIENT_SECRET" \
+  --redirect-uri "http://localhost:8080/oauth2/callback" \
+  --out ./tokens.json
+```
+
 The command starts a temporary local callback server, opens the Google consent
 page in your browser, exchanges the returned code, and stores the token response
 with file mode `0600`. Store the `refresh_token` value securely as

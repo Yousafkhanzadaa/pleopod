@@ -193,6 +193,8 @@ class GeminiAIProvider(AIProvider):
         model: str,
         speakers: list[SpeakerVoice],
     ) -> AudioGeneration:
+        if not speakers:
+            raise ValueError("Gemini TTS requires at least 1 speaker")
         if len(speakers) > 2:
             raise ValueError("Gemini multi-speaker TTS currently supports up to 2 speakers")
         if not prompt.strip():
@@ -230,16 +232,6 @@ class GeminiAIProvider(AIProvider):
     ) -> AudioGeneration:
         from google.genai import types
 
-        speaker_voice_configs = [
-            types.SpeakerVoiceConfig(
-                speaker=speaker.speaker,
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=speaker.voice_name)
-                ),
-            )
-            for speaker in speakers
-        ]
-
         logger.info(
             "Generating Gemini TTS model=%s prompt_chars=%s speakers=%s",
             model,
@@ -252,11 +244,7 @@ class GeminiAIProvider(AIProvider):
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
-                        speaker_voice_configs=speaker_voice_configs
-                    )
-                ),
+                speech_config=self._tts_speech_config(types, speakers),
             ),
         )
         candidates = response.candidates or []
@@ -275,6 +263,28 @@ class GeminiAIProvider(AIProvider):
         if not isinstance(data, bytes):
             raise RuntimeError("Gemini TTS returned audio data in an unsupported format")
         return AudioGeneration(pcm_data=data, sample_rate=24000)
+
+    def _tts_speech_config(self, types: Any, speakers: list[SpeakerVoice]) -> Any:
+        def voice_config(voice_name: str) -> Any:
+            return types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+            )
+
+        if len(speakers) == 1:
+            return types.SpeechConfig(voice_config=voice_config(speakers[0].voice_name))
+
+        speaker_voice_configs = [
+            types.SpeakerVoiceConfig(
+                speaker=speaker.speaker,
+                voice_config=voice_config(speaker.voice_name),
+            )
+            for speaker in speakers
+        ]
+        return types.SpeechConfig(
+            multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                speaker_voice_configs=speaker_voice_configs
+            )
+        )
 
     def _tts_candidate_models(self, model: str) -> list[str]:
         models = [model]

@@ -14,7 +14,7 @@ def create_app() -> FastAPI:
         title="Pleopod Backend",
         version="0.1.0",
         description=(
-            "AI-agent podcast generation backend with FastAPI, "
+            "AI-agent short video generation backend with FastAPI, "
             "Supabase, and Cloudflare R2."
         ),
     )

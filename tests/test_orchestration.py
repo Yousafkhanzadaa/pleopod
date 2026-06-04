@@ -56,5 +56,6 @@ async def test_orchestrate_generation_job_uses_flash_lite_and_respects_overrides
     assert ai.calls[0]["model"] == "gemini-2.5-flash-lite"
     assert payload.topic == "AI Coding Agents in 2026"
     assert payload.audience == "backend engineers"
+    assert payload.target_duration_seconds == 90
     assert payload.auto_publish is True
     assert [str(url) for url in payload.source_urls] == ["https://example.com/guide"]

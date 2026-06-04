@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.agents.prompts import orchestration_prompt
 from app.core.config import Settings
+from app.core.duration import clamp_generation_duration_seconds
 from app.core.json_utils import parse_model_json
 from app.providers.ai import AIProvider
 from app.schemas.jobs import GenerationJobCreate, GenerationJobRequest, OrchestratedJobPayload
@@ -38,7 +39,9 @@ async def orchestrate_generation_job(
         topic=draft.topic,
         category=request.category or draft.category,
         audience=request.audience or draft.audience,
-        target_duration_seconds=request.target_duration_seconds or draft.target_duration_seconds,
+        target_duration_seconds=clamp_generation_duration_seconds(
+            request.target_duration_seconds or draft.target_duration_seconds
+        ),
         language=request.language or draft.language,
         tone=request.tone or draft.tone,
         source_urls=list(request.source_urls) or draft.source_urls,

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.core.duration import clamp_generation_duration_seconds
 from app.core.json_utils import extract_json, to_pretty_json
 from app.providers.ai import AIProvider, Citation
 from app.schemas.agent_outputs import TopicScoutDecision
@@ -113,9 +114,9 @@ class TopicScoutAgent:
 def topic_scout_prompt(settings: Settings, recent_jobs: list[dict[str, Any]]) -> str:
     recent_topics = recent_topic_prompt_records(recent_jobs)
     return f"""
-You are Pleopod's podcast topic editor.
+You are Pleopod's short-form video topic editor.
 
-Pick one very fresh news topic for today's podcast episode.
+Pick one very fresh news topic for today's short video talk.
 Current UTC datetime: {datetime.now(UTC).isoformat(timespec="seconds")}
 
 Target audience:
@@ -128,7 +129,7 @@ Already used topics and titles. Do not repeat or rephrase these:
 {to_pretty_json(recent_topics)}
 
 Use live Google Search grounding. Find a very fresh, popular story that many
-people would actually want to hear discussed in a podcast today. Prioritize
+people would actually want to hear discussed in a short video today. Prioritize
 developments from the last 24-48 hours when possible, and only choose older
 stories if they are still actively developing today.
 
@@ -141,14 +142,14 @@ Editorial lanes:
   chips, or the internet
 
 Prefer topics with broad curiosity, clear stakes, credible reporting, and
-enough depth for a full conversation. Avoid niche maintenance updates,
+enough depth for a focused single-speaker talk. Avoid niche maintenance updates,
 evergreen explainers, soft rumors, generic trend pieces, and anything already
 covered above. Do not rephrase a recent topic as a new one.
 
 Return exactly one best topic. The topic and title are the priority.
 Return JSON only, with no extra keys:
 {{
-  "topic": "specific podcast topic",
+  "topic": "specific short video topic",
   "title": "clear clickable episode title",
   "source_urls": ["https://..."]
 }}
@@ -359,7 +360,7 @@ def topic_scout_repair_prompt(
     return f"""
 You are repairing Pleopod topic scout output.
 
-Do not search again. Convert the available text into one simple podcast-topic
+Do not search again. Convert the available text into one simple short-video-topic
 JSON object. If there are multiple options, keep only the strongest one.
 
 Parse/validation error:
@@ -376,7 +377,7 @@ Previous raw output:
 
 Return JSON only:
 {{
-  "topic": "specific podcast topic",
+  "topic": "specific short video topic",
   "title": "clear clickable episode title",
   "source_urls": ["https://..."]
 }}
@@ -391,12 +392,12 @@ def topic_scout_retry_prompt(
     attempt: int,
 ) -> str:
     return f"""
-You are Pleopod's podcast topic editor.
+You are Pleopod's short-form video topic editor.
 
 Attempt {attempt} of {TOPIC_SCOUT_MAX_SELECTION_ATTEMPTS}.
 
 Your previous topic was too close to an already used topic. Choose a completely
-different, very fresh current story that a broad podcast audience would care
+different, very fresh current story that a broad short-video audience would care
 about.
 
 Already used topics and titles. Do not repeat or rephrase these:
@@ -411,12 +412,12 @@ Why it was considered already used:
 Use live Google Search grounding. Prefer developments from the last 24-48
 hours across technology, AI, biotech, business, and politics or policy when
 they affect technology, AI, biotech, business, cybersecurity, energy, chips,
-platforms, or the internet. Return exactly one best podcast topic. The topic
+platforms, or the internet. Return exactly one best short video topic. The topic
 and title are the priority.
 
 Return JSON only, with no extra keys:
 {{
-  "topic": "specific podcast topic",
+  "topic": "specific short video topic",
   "title": "clear clickable episode title",
   "source_urls": ["https://..."]
 }}
@@ -428,7 +429,7 @@ def topic_scout_source_completion_prompt(
     decision: dict[str, Any],
 ) -> str:
     return f"""
-You are completing source discovery for a Pleopod podcast topic.
+You are completing source discovery for a Pleopod short video topic.
 
 The topic is already selected. Use live Google Search grounding to find direct
 source URLs for this exact topic.
@@ -441,7 +442,7 @@ find yourself.
 
 Return JSON only:
 {{
-  "topic": "{decision.get("topic") or "specific podcast topic"}",
+  "topic": "{decision.get("topic") or "specific short video topic"}",
   "title": "{decision.get("title") or "clear clickable episode title"}",
   "source_urls": ["https://..."]
 }}
@@ -483,7 +484,7 @@ def generation_job_from_decision(
         topic=str(decision.get("topic") or decision.get("title") or "").strip(),
         category=str(decision.get("category") or settings.autopublish_category),
         audience=str(decision.get("audience") or settings.autopublish_audience),
-        target_duration_seconds=int(
+        target_duration_seconds=clamp_generation_duration_seconds(
             decision.get("target_duration_seconds")
             or settings.autopublish_target_duration_seconds
         ),

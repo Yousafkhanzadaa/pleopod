@@ -32,7 +32,7 @@ class FakeAIProvider(AIProvider):
                 "topic": "AI Coding Agents in 2026",
                 "category": "Tech",
                 "audience": "curious tech listeners and software builders",
-                "target_duration_seconds": 600,
+                "target_duration_seconds": 90,
                 "language": "en",
                 "tone": "clear, smart, conversational",
                 "source_urls": [],
@@ -77,36 +77,35 @@ class FakeAIProvider(AIProvider):
                 "rejected_topics": [],
             }
             return TextGeneration(text=json.dumps(topic_data))
-        if schema_name == "PodcastScript" or "podcast script agent" in lower:
+        if (
+            schema_name == "PodcastScript"
+            or "podcast script agent" in lower
+            or "short video script agent" in lower
+        ):
             script_data: dict[str, Any] = {
-                "title": "The AI Podcast Pipeline",
-                "slug": "the-ai-podcast-pipeline",
-                "summary": "A short conversation about building trustworthy AI-generated podcasts.",
+                "title": "The AI Media Pipeline",
+                "slug": "the-ai-media-pipeline",
+                "summary": "A short talk about building trustworthy AI-generated media.",
                 "description": "A practical look at research, verification, and audio generation.",
                 "speakers": [
-                    {"name": "Arman", "role": "Host", "voice_name": "Charon"},
-                    {"name": "Maya", "role": "Analyst", "voice_name": "Aoede"},
+                    {
+                        "name": "Arman",
+                        "role": "Presenter",
+                        "voice_name": "Algenib",
+                        "style": "low-pitched, grounded, authoritative, attention-grabbing",
+                    },
                 ],
                 "transcript": (
-                    "TTS the following conversation between Arman and Maya:\n\n"
-                    "Arman: Welcome back. Today we are looking at how an AI podcast pipeline "
-                    "should work.\n"
-                    "Maya: The key is simple: research first, verify every important claim, "
-                    "then generate audio.\n"
-                    "Arman: That gives the workflow a real spine instead of a pile of prompts.\n"
-                    "Maya: And each stage leaves an artifact, so builders can inspect what "
-                    "happened.\n"
-                    "Arman: Research produces sources and claims, script turns those claims "
-                    "into conversation, and verification checks the facts.\n"
-                    "Maya: Audio and video should only run after those earlier outputs are "
-                    "complete.\n"
-                    "Arman: That is why stage-by-stage testing matters so much for quality.\n"
-                    "Maya: You can perfect research, then script, then audio, without guessing "
-                    "where the issue came from.\n"
-                    "Arman: Once the pieces are solid, the worker can connect them into the "
-                    "full publishing flow.\n"
-                    "Maya: That wraps it up: small reliable stages, then one dependable "
-                    "pipeline."
+                    "TTS the following talk by Arman:\n\n"
+                    "Arman: Welcome back. Today we are looking at how an AI media pipeline "
+                    "should work without turning into a long show.\n"
+                    "Arman: The key is simple: research first, verify every important claim, "
+                    "then generate audio and video only after the facts are stable.\n"
+                    "Arman: That gives the workflow a real spine instead of a pile of prompts. "
+                    "Each stage leaves an artifact, so builders can inspect what happened.\n"
+                    "Arman: Once the pieces are solid, the worker connects them into a short, "
+                    "dependable publishing flow. That is the whole point: tighter output, "
+                    "better control, and no wasted runtime."
                 ),
             }
             return TextGeneration(text=json.dumps(script_data))
@@ -121,7 +120,7 @@ class FakeAIProvider(AIProvider):
             return TextGeneration(text=json.dumps(verification_data))
         if schema_name == "ResearchDossier" or "research dossier" in lower:
             research_data: dict[str, Any] = {
-                "summary": "This is a local fake research dossier for a technology podcast.",
+                "summary": "This is a local fake research dossier for a technology video.",
                 "key_points": [
                     "AI agents can automate research workflows.",
                     "Verification is required before publishing.",

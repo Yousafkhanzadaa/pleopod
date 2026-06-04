@@ -304,7 +304,7 @@ def test_topic_scout_prompt_uses_simple_json_contract() -> None:
     assert '"trend_evidence"' not in prompt
     assert '"search_queries"' not in prompt
     assert '"target_duration_seconds"' not in prompt
-    assert "podcast topic editor" in prompt
+    assert "short-form video topic editor" in prompt
     assert "popular story" in prompt
     assert "topic and title are the priority" in prompt
     assert "OpenAI launches Codex team controls" in prompt

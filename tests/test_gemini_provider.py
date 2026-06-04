@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.providers.ai import SpeakerVoice
 from app.providers.gemini import GeminiAIProvider
 
 
@@ -51,3 +52,49 @@ def test_extract_response_text_reads_candidate_parts_when_response_text_is_empty
     )
 
     assert provider._extract_response_text(response) == '{"topic":"A sourced topic"}'
+
+
+class _FakeTypes:
+    class PrebuiltVoiceConfig(SimpleNamespace):
+        pass
+
+    class VoiceConfig(SimpleNamespace):
+        pass
+
+    class SpeakerVoiceConfig(SimpleNamespace):
+        pass
+
+    class MultiSpeakerVoiceConfig(SimpleNamespace):
+        pass
+
+    class SpeechConfig(SimpleNamespace):
+        pass
+
+
+def test_tts_speech_config_uses_single_voice_config_for_one_speaker() -> None:
+    provider = GeminiAIProvider.__new__(GeminiAIProvider)
+
+    config = provider._tts_speech_config(
+        _FakeTypes,
+        [SpeakerVoice("Arman", "Algenib")],
+    )
+
+    assert config.voice_config.prebuilt_voice_config.voice_name == "Algenib"
+    assert not hasattr(config, "multi_speaker_voice_config")
+
+
+def test_tts_speech_config_uses_multi_speaker_config_for_two_speakers() -> None:
+    provider = GeminiAIProvider.__new__(GeminiAIProvider)
+
+    config = provider._tts_speech_config(
+        _FakeTypes,
+        [SpeakerVoice("Arman", "Algenib"), SpeakerVoice("Maya", "Aoede")],
+    )
+
+    voice_configs = config.multi_speaker_voice_config.speaker_voice_configs
+    assert [item.speaker for item in voice_configs] == ["Arman", "Maya"]
+    assert [item.voice_config.prebuilt_voice_config.voice_name for item in voice_configs] == [
+        "Algenib",
+        "Aoede",
+    ]
+    assert not hasattr(config, "voice_config")

@@ -165,10 +165,14 @@ def _script() -> dict:
         "summary": "Short summary",
         "description": "Long description",
         "speakers": [
-            {"name": "Arman", "role": "Host", "voice_name": "Charon", "style": "warm"},
-            {"name": "Maya", "role": "Analyst", "voice_name": "Aoede", "style": "curious"},
+            {
+                "name": "Arman",
+                "role": "Presenter",
+                "voice_name": "Algenib",
+                "style": "low-pitched and authoritative",
+            },
         ],
-        "transcript": "Arman: Welcome.\nMaya: Let's unpack it.",
+        "transcript": "Arman: Welcome.\nArman: Let's unpack it.",
     }
 
 
@@ -198,10 +202,10 @@ async def test_build_video_payload_uses_public_asset_urls_and_script_speakers() 
     )
 
     assert payload["episodeId"] == "episode-1"
-    assert payload["durationSeconds"] == 600
+    assert payload["durationSeconds"] == 90
     assert payload["audioUrl"] == "file:///tmp/final.mp3"
     assert payload["thumbnailUrl"] == "file:///tmp/cover.png"
-    assert payload["speakers"][0]["voiceName"] == "Charon"
+    assert payload["speakers"][0]["voiceName"] == "Algenib"
 
 
 @pytest.mark.asyncio
@@ -245,7 +249,7 @@ async def test_build_video_payload_includes_audio_segment_line_timings() -> None
                         "index": 1,
                         "start_seconds": 0,
                         "end_seconds": 10,
-                        "source_transcript": "Arman: Welcome.\nMaya: Let's unpack it.",
+                        "source_transcript": "Arman: Welcome.\nArman: Let's unpack it.",
                     }
                 ],
             },
@@ -264,7 +268,7 @@ async def test_build_video_payload_includes_audio_segment_line_timings() -> None
         },
         {
             "id": "line_002",
-            "speaker": "Maya",
+            "speaker": "Arman",
             "text": "Let's unpack it.",
             "startSeconds": 5.0,
             "endSeconds": 10.0,
@@ -342,7 +346,7 @@ async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
 
     async def _run_director(self, context, props_path, plan_path) -> None:
         render_props.update(json.loads(props_path.read_text(encoding="utf-8")))
-        plan_path.write_text('{"version":1,"durationSeconds":600,"scenes":[]}', encoding="utf-8")
+        plan_path.write_text('{"version":1,"durationSeconds":90,"scenes":[]}', encoding="utf-8")
 
     async def _run_render(self, context, props_path, plan_path, output_path) -> None:
         output_path.write_bytes(b"video")

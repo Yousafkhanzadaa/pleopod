@@ -9,21 +9,27 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings
+from app.core.duration import (
+    MAX_GENERATION_DURATION_SECONDS,
+    MIN_GENERATION_DURATION_SECONDS,
+    clamp_generation_duration_seconds,
+)
 
 TERMINAL_STATUSES = {"completed", "failed", "canceled"}
-BACKEND_MIN_DURATION_SECONDS = 120
+BACKEND_MIN_DURATION_SECONDS = MIN_GENERATION_DURATION_SECONDS
+BACKEND_MAX_DURATION_SECONDS = MAX_GENERATION_DURATION_SECONDS
 BACKEND_MAX_TONE_CHARS = 200
 SMOKE_TEST_MIN_DURATION_SECONDS = 30
-SMOKE_TEST_MAX_DURATION_SECONDS = 60
-SMOKE_TEST_MAX_WORDS = 140
-SMOKE_TEST_MAX_TURNS = 6
+SMOKE_TEST_MAX_DURATION_SECONDS = MAX_GENERATION_DURATION_SECONDS
+SMOKE_TEST_MAX_WORDS = 190
+SMOKE_TEST_MAX_SECTIONS = 4
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Create a short smoke-test podcast job and print the final audio URL."
+        description="Create a short smoke-test video job and print the final audio URL."
     )
-    parser.add_argument("title", help="Podcast title to generate.")
+    parser.add_argument("title", help="Short video title to generate.")
     parser.add_argument("--api-url", default="http://localhost:8000", help="Pleopod API base URL.")
     parser.add_argument(
         "--admin-key", default=None, help="Admin API key. Defaults to ADMIN_API_KEY."
@@ -61,14 +67,14 @@ def smoke_test_duration_seconds(requested_duration: int) -> int:
 
 
 def backend_request_duration_seconds(desired_duration_seconds: int) -> int:
-    return max(desired_duration_seconds, BACKEND_MIN_DURATION_SECONDS)
+    return clamp_generation_duration_seconds(desired_duration_seconds)
 
 
 def build_smoke_test_tone(base_tone: str, desired_duration_seconds: int) -> str:
     base = base_tone.strip().rstrip(".")
     smoke_test_instruction = (
         f"smoke test: ~{desired_duration_seconds}s, <= {SMOKE_TEST_MAX_WORDS} words, "
-        f"<= {SMOKE_TEST_MAX_TURNS} turns, no filler"
+        f"<= {SMOKE_TEST_MAX_SECTIONS} one-speaker sections, no filler"
     )
     if not base:
         return smoke_test_instruction

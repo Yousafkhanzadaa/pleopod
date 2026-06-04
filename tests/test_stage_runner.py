@@ -50,7 +50,7 @@ async def test_stage_runner_runs_one_stage_without_enqueueing_next(tmp_path: Pat
                     "topic": "Local stage runner",
                     "category": "Tech",
                     "audience": "builders",
-                    "target_duration_seconds": 120,
+                    "target_duration_seconds": 90,
                     "language": "en",
                     "tone": "clear",
                     "source_urls": [],

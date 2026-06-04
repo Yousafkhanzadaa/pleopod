@@ -5,12 +5,14 @@ from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.agents.prompts import script_prompt, script_repair_prompt
+from app.core.duration import clamp_generation_duration_seconds
 from app.core.json_utils import parse_model_json
 from app.models.enums import ArtifactType, PipelineStep
 from app.schemas.agent_outputs import PodcastScript
 
 _TTS_PREAMBLE_RE = re.compile(
-    r"^\s*TTS\s+the\s+following\s+conversation\s+between\s+[^:\n]+:\s*",
+    r"^\s*TTS\s+the\s+following\s+"
+    r"(?:conversation\s+between|talk\s+by|monologue\s+by)\s+[^:\n]+:\s*",
     re.IGNORECASE,
 )
 _SPEAKER_LINE_RE = re.compile(
@@ -69,7 +71,7 @@ class ScriptWriterAgent(PipelineAgent):
         try:
             self._validate_script(script, job)
         except ValueError as exc:
-            script = await self._repair_script(context, script, str(exc))
+            script = await self._repair_script(context, script, str(exc), job)
             script = self._normalize_script(script)
             self._validate_script(script, job)
             script.setdefault("metadata", {})["script_repaired_after_validation_error"] = True
@@ -101,9 +103,16 @@ class ScriptWriterAgent(PipelineAgent):
         context: AgentContext,
         script: dict[str, Any],
         validation_error: str,
+        job: dict[str, Any],
     ) -> dict[str, Any]:
         response = await context.ai.generate_text(
-            prompt=script_repair_prompt(script, validation_error),
+            prompt=script_repair_prompt(
+                script,
+                validation_error,
+                target_duration_seconds=clamp_generation_duration_seconds(
+                    job.get("target_duration_seconds")
+                ),
+            ),
             model=context.settings.gemini_script_model,
             response_schema=PodcastScript,
         )
@@ -111,14 +120,11 @@ class ScriptWriterAgent(PipelineAgent):
 
     def _normalize_transcript(self, transcript: str, speakers: list[dict[str, Any]]) -> str:
         speaker_names = [speaker.get("name") for speaker in speakers if speaker.get("name")]
-        if len(speaker_names) != 2:
+        if not speaker_names:
             return transcript
 
         prefix_match = _TTS_PREAMBLE_RE.match(transcript.strip())
-        prefix = (
-            f"TTS the following conversation between {speaker_names[0]} and "
-            f"{speaker_names[1]}:\n\n"
-        )
+        prefix = tts_preamble_for_speakers(speaker_names)
         body = transcript.strip()
         if prefix_match:
             body = body[prefix_match.end() :].lstrip()
@@ -188,8 +194,8 @@ class ScriptWriterAgent(PipelineAgent):
 
     def _validate_script(self, script: dict[str, Any], job: dict[str, Any] | None = None) -> None:
         speakers = script.get("speakers") or []
-        if len(speakers) != 2:
-            raise ValueError("Gemini multi-speaker TTS MVP requires exactly two speakers")
+        if len(speakers) != 1:
+            raise ValueError("Short-form video scripts require exactly one speaker")
         names = {speaker.get("name") for speaker in speakers}
         transcript = script.get("transcript") or ""
         if not transcript.strip():
@@ -203,6 +209,10 @@ class ScriptWriterAgent(PipelineAgent):
             raise ValueError(f"Transcript missing speaker labels: {', '.join(missing)}")
 
         turns = canonical_dialogue_turns(transcript)
+        unexpected = sorted({turn["speaker"] for turn in turns if turn["speaker"] not in names})
+        if unexpected:
+            raise ValueError(f"Transcript has unexpected speaker labels: {', '.join(unexpected)}")
+
         min_turns = minimum_turn_count(job)
         if len(turns) < min_turns:
             raise ValueError(
@@ -224,8 +234,18 @@ def minimum_turn_count(job: dict[str, Any] | None = None) -> int:
     except (TypeError, ValueError):
         target_duration = 0
     if target_duration <= 0:
-        return 4
-    return min(10, max(4, target_duration // 45))
+        return 2
+    target_duration = clamp_generation_duration_seconds(target_duration)
+    return min(4, max(2, target_duration // 30))
+
+
+def tts_preamble_for_speakers(speaker_names: list[str]) -> str:
+    if len(speaker_names) == 1:
+        return f"TTS the following talk by {speaker_names[0]}:\n\n"
+    return (
+        f"TTS the following conversation between {speaker_names[0]} and "
+        f"{speaker_names[1]}:\n\n"
+    )
 
 
 def canonical_dialogue_turns(transcript: str) -> list[dict[str, str]]:

@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
+from app.core.duration import MAX_VIDEO_DURATION_SECONDS, clamp_video_duration_seconds
 from app.core.json_utils import to_pretty_json
 from app.models.enums import ArtifactType, JobStatus, PipelineStep
 from app.providers.storage import public_object_url
@@ -213,6 +214,8 @@ class VideoRenderAgent(PipelineAgent):
                 "-pix_fmt",
                 "yuv420p",
                 "-shortest",
+                "-t",
+                str(MAX_VIDEO_DURATION_SECONDS),
                 "-movflags",
                 "+faststart",
                 str(output_path),
@@ -370,6 +373,7 @@ async def build_video_payload(
 ) -> dict[str, Any]:
     audio_duration_seconds = await resolve_audio_duration_seconds(audio_artifact, context)
     duration_seconds = video_duration_seconds(job, episode, audio_duration_seconds)
+    line_timings = clip_line_timings(build_dialogue_timings(audio_artifact), duration_seconds)
     return {
         "jobId": str(job["id"]),
         "episodeId": str(episode.get("id") or (job.get("metadata") or {}).get("episode_id") or ""),
@@ -392,7 +396,7 @@ async def build_video_payload(
             for speaker in script.get("speakers", [])
         ],
         "transcript": script.get("transcript") or "",
-        "lineTimings": build_dialogue_timings(audio_artifact),
+        "lineTimings": line_timings,
         "chapters": normalize_chapters(script.get("chapters") or []),
         "format": {
             "platform": "youtube",
@@ -404,7 +408,7 @@ async def build_video_payload(
         },
         "brand": {
             "name": "Pleopod",
-            "tagline": "Factual tech podcasts, generated with evidence.",
+            "tagline": "Factual tech videos, generated with evidence.",
             "primaryColor": "#22d3ee",
             "accentColor": "#f59e0b",
             "backgroundColor": "#101216",
@@ -434,13 +438,38 @@ def video_duration_seconds(
     audio_duration_seconds: float | None,
 ) -> int:
     if audio_duration_seconds:
-        return max(5, math.ceil(audio_duration_seconds + 1))
+        return clamp_video_duration_seconds(math.ceil(audio_duration_seconds + 1))
 
     episode_duration = positive_float(episode.get("duration_seconds"))
     if episode_duration:
-        return max(5, math.ceil(episode_duration))
+        return clamp_video_duration_seconds(math.ceil(episode_duration))
 
-    return max(5, int(job["target_duration_seconds"]))
+    return clamp_video_duration_seconds(job["target_duration_seconds"])
+
+
+def clip_line_timings(
+    line_timings: list[dict[str, Any]],
+    duration_seconds: int,
+) -> list[dict[str, Any]]:
+    clipped = []
+    for timing in line_timings:
+        start_seconds = nonnegative_float(timing.get("startSeconds"))
+        end_seconds = nonnegative_float(timing.get("endSeconds"))
+        if start_seconds is None or end_seconds is None:
+            continue
+        if start_seconds >= duration_seconds:
+            continue
+        clipped_end = min(end_seconds, float(duration_seconds))
+        if clipped_end <= start_seconds:
+            continue
+        clipped.append(
+            {
+                **timing,
+                "startSeconds": round_seconds(start_seconds),
+                "endSeconds": round_seconds(clipped_end),
+            }
+        )
+    return clipped
 
 
 def positive_float(value: Any) -> float | None:

@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.duration import clamp_generation_duration_seconds
 from app.db.interfaces import (
     ArtifactStore,
     EpisodeStore,
@@ -145,6 +146,9 @@ class JobRepository(JobStore):
         """
         params = {
             **payload,
+            "target_duration_seconds": clamp_generation_duration_seconds(
+                payload.get("target_duration_seconds")
+            ),
             "source_urls": _json_dumps(payload.get("source_urls", []), []),
             "metadata": _json_dumps(payload.get("metadata", {}), {}),
             "auto_publish": bool(payload.get("auto_publish", False)),

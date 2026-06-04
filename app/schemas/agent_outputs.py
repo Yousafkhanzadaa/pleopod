@@ -72,7 +72,7 @@ class PodcastScript(AgentOutputModel):
     slug: str = Field(min_length=1)
     summary: str = ""
     description: str = ""
-    speakers: list[ScriptSpeaker] = Field(min_length=2, max_length=2)
+    speakers: list[ScriptSpeaker] = Field(min_length=1, max_length=1)
     transcript: str = Field(min_length=1)
     used_claims: list[str] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)

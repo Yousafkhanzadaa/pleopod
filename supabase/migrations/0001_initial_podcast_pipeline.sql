@@ -24,7 +24,7 @@ create table if not exists generation_jobs (
   topic text not null,
   category text not null default 'Tech',
   audience text not null default 'curious tech listeners',
-  target_duration_seconds integer not null default 600,
+  target_duration_seconds integer not null default 90,
   language text not null default 'en',
   tone text not null default 'clear, smart, conversational',
   source_urls jsonb not null default '[]'::jsonb,

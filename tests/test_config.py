@@ -48,7 +48,7 @@ def test_default_gemini_models_use_low_cost_development_profile(
     assert settings.openai_image_quality == "medium"
     assert settings.tts_generation_mode == "chunked"
     assert settings.autopublish_topic_model == "gemini-2.5-flash-lite"
-    assert settings.autopublish_target_duration_seconds == 600
+    assert settings.autopublish_target_duration_seconds == 90
     assert settings.autopublish_min_source_urls == 3
     assert settings.autopublish_require_trusted_sources is True
     assert "openai.com" in settings.autopublish_trusted_source_domains

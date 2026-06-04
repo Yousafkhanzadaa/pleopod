@@ -32,7 +32,7 @@ GEMINI_TTS_VOICE_NAMES = {
     "zephyr": "Zephyr",
     "zubenelgenubi": "Zubenelgenubi",
 }
-DEFAULT_GEMINI_TTS_VOICES = ("Charon", "Aoede")
+DEFAULT_GEMINI_TTS_VOICES = ("Algenib",)
 
 
 def normalize_gemini_tts_voice_name(voice_name: str | None) -> str | None:

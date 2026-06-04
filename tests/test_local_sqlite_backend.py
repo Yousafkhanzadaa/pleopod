@@ -35,7 +35,7 @@ async def test_sqlite_backend_stores_jobs_artifacts_segments_and_queue_messages(
                     "topic": "Local-first pipeline",
                     "category": "Tech",
                     "audience": "builders",
-                    "target_duration_seconds": 120,
+                    "target_duration_seconds": 90,
                     "language": "en",
                     "tone": "clear",
                     "source_urls": [],

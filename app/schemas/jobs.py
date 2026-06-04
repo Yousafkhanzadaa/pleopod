@@ -4,13 +4,19 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
+from app.core.duration import MAX_GENERATION_DURATION_SECONDS, MIN_GENERATION_DURATION_SECONDS
+
 
 class GenerationJobRequest(BaseModel):
     title: str | None = Field(default=None, min_length=3, max_length=300)
     topic: str | None = Field(default=None, min_length=3, max_length=300)
     category: str | None = Field(default=None, max_length=80)
     audience: str | None = Field(default=None, max_length=200)
-    target_duration_seconds: int | None = Field(default=None, ge=120, le=3600)
+    target_duration_seconds: int | None = Field(
+        default=None,
+        ge=MIN_GENERATION_DURATION_SECONDS,
+        le=3600,
+    )
     language: str | None = Field(default=None, max_length=16)
     tone: str | None = Field(default=None, max_length=200)
     source_urls: list[HttpUrl] = Field(default_factory=list, max_length=20)
@@ -32,7 +38,11 @@ class OrchestratedJobPayload(BaseModel):
     topic: str = Field(min_length=3, max_length=300)
     category: str = Field(default="Tech", max_length=80)
     audience: str = Field(default="curious tech listeners", max_length=200)
-    target_duration_seconds: int = Field(default=600, ge=120, le=3600)
+    target_duration_seconds: int = Field(
+        default=MAX_GENERATION_DURATION_SECONDS,
+        ge=MIN_GENERATION_DURATION_SECONDS,
+        le=3600,
+    )
     language: str = Field(default="en", max_length=16)
     tone: str = Field(default="clear, smart, conversational", max_length=200)
     source_urls: list[HttpUrl] = Field(default_factory=list, max_length=20)
@@ -42,7 +52,11 @@ class GenerationJobCreate(BaseModel):
     topic: str = Field(min_length=3, max_length=300)
     category: str = Field(default="Tech", max_length=80)
     audience: str = Field(default="curious tech listeners", max_length=200)
-    target_duration_seconds: int = Field(default=600, ge=120, le=3600)
+    target_duration_seconds: int = Field(
+        default=MAX_GENERATION_DURATION_SECONDS,
+        ge=MIN_GENERATION_DURATION_SECONDS,
+        le=MAX_GENERATION_DURATION_SECONDS,
+    )
     language: str = Field(default="en", max_length=16)
     tone: str = Field(default="clear, smart, conversational", max_length=200)
     source_urls: list[HttpUrl] = Field(default_factory=list, max_length=20)

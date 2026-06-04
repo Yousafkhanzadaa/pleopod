@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.duration import MAX_GENERATION_DURATION_SECONDS
+
 LOW_COST_GEMINI_TEXT_MODEL = "gemini-2.5-flash-lite"
 LOW_COST_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 LOW_COST_IMAGE_MODEL = "imagen-4.0-fast-generate-001"
@@ -78,7 +80,7 @@ class Settings(BaseSettings):
     autopublish_topic_model: str = LOW_COST_GEMINI_TEXT_MODEL
     autopublish_category: str = "Tech"
     autopublish_audience: str = "curious tech listeners and software builders"
-    autopublish_target_duration_seconds: int = 600
+    autopublish_target_duration_seconds: int = MAX_GENERATION_DURATION_SECONDS
     autopublish_language: str = "en"
     autopublish_tone: str = "clear, smart, conversational, timely"
     autopublish_region: str = "US and global English-language technology news"

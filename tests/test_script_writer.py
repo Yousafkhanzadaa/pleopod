@@ -9,24 +9,17 @@ from app.models.enums import ArtifactType
 
 def _speakers() -> list[dict]:
     return [
-        {"name": "Arman", "role": "Host", "voice_name": "Charon"},
-        {"name": "Maya", "role": "Analyst", "voice_name": "Aoede"},
+        {"name": "Arman", "role": "Presenter", "voice_name": "Algenib"},
     ]
 
 
 def _complete_transcript() -> str:
     return (
-        "TTS the following conversation between Arman and Maya:\n\n"
-        "Arman: Welcome back.\n"
-        "Maya: Let's unpack the story.\n"
-        "Arman: The first point is grounded in the research.\n"
-        "Maya: The second point adds the practical context.\n"
-        "Arman: That gives listeners a clear path through the topic.\n"
-        "Maya: It also keeps the episode from becoming a list of facts.\n"
-        "Arman: Exactly, the best version is accurate and conversational.\n"
-        "Maya: And it should end cleanly instead of stopping mid-thought.\n"
-        "Arman: That is the key lesson for this episode.\n"
-        "Maya: Thanks, Arman. That wraps up our discussion."
+        "TTS the following talk by Arman:\n\n"
+        "Arman: Welcome back. The first point is grounded in the research.\n"
+        "Arman: The second point adds practical context without turning this into a long show.\n"
+        "Arman: That gives viewers a clear path through the topic and keeps the facts moving.\n"
+        "Arman: That is the key lesson for this episode, and it is where we will leave it."
     )
 
 
@@ -39,9 +32,9 @@ def test_normalize_script_rewrites_common_speaker_label_variants() -> None:
         "description": "Description",
         "speakers": _speakers(),
         "transcript": (
-            "TTS the following conversation between Arman and Maya:\n\n"
-            "**Host:** Welcome back.\n"
-            "Maya (Analyst): Let's unpack the story."
+            "TTS the following talk by Arman:\n\n"
+            "**Presenter:** Welcome back.\n"
+            "Arman: Let's unpack the story."
         ),
         "used_claims": [],
     }
@@ -49,11 +42,36 @@ def test_normalize_script_rewrites_common_speaker_label_variants() -> None:
     normalized = agent._normalize_script(script)
 
     assert normalized["transcript"].startswith(
-        "TTS the following conversation between Arman and Maya:"
+        "TTS the following talk by Arman:"
     )
     assert "Arman: Welcome back." in normalized["transcript"]
-    assert "Maya: Let's unpack the story." in normalized["transcript"]
+    assert "Arman: Let's unpack the story." in normalized["transcript"]
     agent._validate_script(normalized)
+
+
+def test_validate_script_allows_transcript_over_word_budget() -> None:
+    agent = ScriptWriterAgent()
+    script = {
+        "title": "Test Episode",
+        "slug": "test-episode",
+        "summary": "Summary",
+        "description": "Description",
+        "speakers": _speakers(),
+        "transcript": (
+            "TTS the following talk by Arman:\n\n"
+            f"Arman: {' '.join(['alpha'] * 80)}.\n"
+            f"Arman: {' '.join(['bravo'] * 80)}.\n"
+            f"Arman: {' '.join(['charlie'] * 80)}."
+        ),
+        "used_claims": [],
+    }
+
+    agent._validate_script(
+        script,
+        {
+            "target_duration_seconds": 90,
+        },
+    )
 
 
 class _ArtifactService:
@@ -125,8 +143,8 @@ async def test_script_writer_repairs_invalid_script_before_failing_worker_retrie
                 "description": "Description",
                 "speakers": _speakers(),
                 "transcript": (
-                    "TTS the following conversation between Arman and Maya:\n\n"
-                    "Maya: Let me walk through the whole thing myself."
+                    "TTS the following talk by Arman:\n\n"
+                    "Arman: Let me walk through the whole thing myself."
                 ),
                 "used_claims": [],
             },
@@ -147,7 +165,7 @@ async def test_script_writer_repairs_invalid_script_before_failing_worker_retrie
             "id": "job-1",
             "topic": "AI Agents",
             "audience": "Developers",
-            "target_duration_seconds": 600,
+            "target_duration_seconds": 90,
             "language": "en",
             "tone": "clear, smart, conversational",
         },
@@ -172,11 +190,9 @@ async def test_script_writer_repairs_truncated_final_line() -> None:
                 "description": "Description",
                 "speakers": _speakers(),
                 "transcript": (
-                    "TTS the following conversation between Arman and Maya:\n\n"
+                    "TTS the following talk by Arman:\n\n"
                     "Arman: Welcome back.\n"
-                    "Maya: Let's unpack the story.\n"
                     "Arman: The research gives us a useful baseline.\n"
-                    "Maya: And the operational details are especially important.\n"
                     "Arman: That’s where its"
                 ),
                 "used_claims": [],
@@ -198,7 +214,7 @@ async def test_script_writer_repairs_truncated_final_line() -> None:
             "id": "job-1",
             "topic": "AI Agents",
             "audience": "Developers",
-            "target_duration_seconds": 120,
+            "target_duration_seconds": 90,
             "language": "en",
             "tone": "clear, smart, conversational",
         },

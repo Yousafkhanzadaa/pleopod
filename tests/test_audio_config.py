@@ -12,10 +12,9 @@ from app.core.config import Settings
 
 def test_normalize_tts_transcript_removes_generated_preamble() -> None:
     transcript = """
-TTS the following conversation between Arman and Maya:
+TTS the following talk by Arman:
 
 Arman: Welcome back.
-Maya: Let's unpack the story.
 """.strip()
 
     normalized = normalize_tts_transcript(transcript)
@@ -26,16 +25,15 @@ Maya: Let's unpack the story.
 
 def test_build_tts_prompt_has_clear_transcript_boundary() -> None:
     prompt = build_tts_prompt(
-        "Arman: Welcome back.\nMaya: Let's unpack the story.",
+        "Arman: Welcome back.\nArman: Let's unpack the story.",
         [
-            {"name": "Arman", "style": "clear and warm"},
-            {"name": "Maya", "style": "curious and energetic"},
+            {"name": "Arman", "style": "low-pitched and authoritative"},
         ],
     )
 
-    assert prompt.startswith("Make Arman sound clear and warm")
-    assert "Keep each speaker's voice identity" in prompt
-    assert "TTS the following conversation between Arman and Maya:" in prompt
+    assert prompt.startswith("Make Arman sound low-pitched and authoritative")
+    assert "Keep Arman's low-pitched voice identity" in prompt
+    assert "TTS the following talk by Arman:" in prompt
     assert "### DIRECTOR'S NOTES" not in prompt
     assert "### TRANSCRIPT\nArman: Welcome back." in prompt
     assert source_transcript_from_tts_prompt(prompt).startswith("Arman: Welcome back.")
@@ -47,7 +45,7 @@ def test_tts_config_rebuild_detects_oversized_old_prompt() -> None:
         "chunks": [
             {
                 "index": 1,
-                "transcript": "TTS the following conversation between Arman and Maya:\n\n"
+                "transcript": "TTS the following talk by Arman:\n\n"
                 + ("Arman: hello\n" * 500),
                 "prompt_char_count": GEMINI_TTS_SAFE_PROMPT_CHARS + 1,
             }
@@ -61,9 +59,8 @@ def test_build_tts_config_replaces_unsupported_voice_names() -> None:
     script = {
         "speakers": [
             {"name": "Arman", "voice_name": "en-US-Neural2-C"},
-            {"name": "Maya", "voice_name": "en-US-Neural2-F"},
         ],
-        "transcript": "Arman: Welcome back.\nMaya: Let's unpack the story.",
+        "transcript": "Arman: Welcome back.\nArman: Let's unpack the story.",
     }
 
     config = build_tts_config(
@@ -75,8 +72,7 @@ def test_build_tts_config_replaces_unsupported_voice_names() -> None:
     assert config["max_source_chunk_chars"] == GEMINI_TTS_SAFE_SOURCE_CHARS
     assert len(config["chunks"]) == 1
     assert config["chunks"][0]["source_transcript"].startswith("Arman: Welcome back.")
-    assert config["speakers"][0]["voice_name"] == "Charon"
-    assert config["speakers"][1]["voice_name"] == "Aoede"
+    assert config["speakers"][0]["voice_name"] == "Algenib"
 
 
 def test_tts_config_rebuild_detects_unsupported_voice_names() -> None:
@@ -94,7 +90,7 @@ def test_tts_config_rebuild_detects_generation_mode_mismatch() -> None:
     config = {
         "generation_mode": "single_request",
         "max_source_chunk_chars": 1200,
-        "speakers": [{"speaker": "Arman", "voice_name": "Charon"}],
+        "speakers": [{"speaker": "Arman", "voice_name": "Algenib"}],
         "chunks": [{"index": 1, "transcript": "Arman: hello", "prompt_char_count": 12}],
     }
 
@@ -104,15 +100,13 @@ def test_tts_config_rebuild_detects_generation_mode_mismatch() -> None:
 def test_build_tts_config_uses_chunked_mode_by_default() -> None:
     script = {
         "speakers": [
-            {"name": "Arman", "voice_name": "Charon"},
-            {"name": "Maya", "voice_name": "Aoede"},
+            {"name": "Arman", "voice_name": "Algenib"},
         ],
         "transcript": "\n".join(
             [
                 "Arman: This is a longer host turn about the topic and why it matters.",
-                "Maya: This analyst response adds context, caveats, and useful framing.",
                 "Arman: Another host turn keeps the test comfortably above the chunk size.",
-                "Maya: Another analyst turn gives the chunker enough work to split.",
+                "Arman: Another presenter turn gives the chunker enough work to split.",
             ]
         ),
     }
@@ -133,10 +127,9 @@ def test_build_tts_config_uses_chunked_mode_by_default() -> None:
 def test_build_tts_config_can_use_single_request_mode_when_explicit() -> None:
     script = {
         "speakers": [
-            {"name": "Arman", "voice_name": "Charon"},
-            {"name": "Maya", "voice_name": "Aoede"},
+            {"name": "Arman", "voice_name": "Algenib"},
         ],
-        "transcript": "Arman: Welcome back.\nMaya: Let's unpack the story.",
+        "transcript": "Arman: Welcome back.\nArman: Let's unpack the story.",
     }
 
     config = build_tts_config(
