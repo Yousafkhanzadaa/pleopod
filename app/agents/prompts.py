@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.core.duration import (
@@ -352,18 +353,92 @@ JSON shape:
 
 
 def thumbnail_prompt(script: Any) -> str:
+    hook_text = thumbnail_hook_text(script)
     return f"""
-Create a premium video thumbnail for a Tech short-form episode.
+Create a high-performing YouTube thumbnail for a Tech short-form video.
 
 Episode title: {script.get("title")}
 Summary: {script.get("summary")}
+Exact large text hook: {hook_text}
 
 Direction:
-- Modern editorial tech visual.
-- Strong focal point.
+- 16:9 YouTube thumbnail, 1280x720, optimized for mobile Home/Suggested feeds.
+- One dominant focal subject tied to the episode topic.
+- Use the exact large text hook above as the only readable text, 2-4 very large words.
+- Do not render any other readable text, numbers, badges, captions, UI labels, charts,
+  lower-thirds, feature cards, stats panels, watermarks, or logos.
+- Leave the bottom-right corner visually clean for YouTube's duration badge.
+- Make the hook readable at phone size with bold type and strong contrast.
+- Use a simple composition: foreground subject, clean background, clear negative space.
+- Use 2 main color families plus one accent color; avoid busy rainbow palettes.
 - No fake logos.
-- No unreadable tiny text.
-- Suitable for a video thumbnail card.
-- Avoid clickbait.
+- Avoid fake screenshots, fake product markings, and misleading imagery.
+- Avoid clickbait; the thumbnail promise must match the episode.
 - Use high contrast and clean composition.
 """.strip()
+
+
+def thumbnail_hook_text(script: Any) -> str:
+    title = str(script.get("title") or "").strip()
+    summary = str(script.get("summary") or "").strip()
+    combined = f"{title} {summary}".lower()
+
+    if "ai" in combined and re.search(
+        r"\b(catastroph\w*|risk\w*|threat\w*|danger\w*|warning\w*)\b", combined
+    ):
+        return "AI WARNING"
+    if "ai" in combined and re.search(
+        r"\b(order|oversight|regulat\w*|policy|government|framework)\b", combined
+    ):
+        return "AI OVERSIGHT"
+
+    words: list[str] = []
+    for source in (title.split(":", 1)[0], title, summary):
+        candidate_words = thumbnail_hook_words(source)
+        if len(candidate_words) >= 2:
+            words = candidate_words
+            break
+        if len(candidate_words) > len(words):
+            words = candidate_words
+    if not words:
+        return "TECH SHIFT"
+    if len(words) == 1:
+        return f"{words[0]} UPDATE"
+    return " ".join(words[:3]).upper()
+
+
+_THUMBNAIL_HOOK_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "new",
+    "of",
+    "on",
+    "or",
+    "our",
+    "the",
+    "this",
+    "to",
+    "with",
+    "your",
+}
+
+
+def thumbnail_hook_words(text: str) -> list[str]:
+    words: list[str] = []
+    for match in re.findall(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?", text):
+        word = re.sub(r"'s$", "", match, flags=re.IGNORECASE).upper()
+        if len(word) <= 1:
+            continue
+        if word.lower() in _THUMBNAIL_HOOK_STOP_WORDS:
+            continue
+        words.append(word)
+    return words

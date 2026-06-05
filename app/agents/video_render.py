@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
-from app.core.duration import MAX_VIDEO_DURATION_SECONDS, clamp_video_duration_seconds
+from app.core.duration import clamp_video_duration_seconds
 from app.core.json_utils import to_pretty_json
 from app.models.enums import ArtifactType, JobStatus, PipelineStep
 from app.providers.storage import public_object_url
@@ -83,7 +83,14 @@ class VideoRenderAgent(PipelineAgent):
                     to_pretty_json(static_video_plan(payload)),
                     encoding="utf-8",
                 )
-                await self._run_static_video(context, audio, thumbnail, output_path, temp_path)
+                await self._run_static_video(
+                    context,
+                    audio,
+                    thumbnail,
+                    output_path,
+                    temp_path,
+                    duration_seconds=int(payload["durationSeconds"]),
+                )
 
             plan = plan_path.read_text(encoding="utf-8")
             plan_artifact = await context.artifact_service.put_text(
@@ -179,11 +186,13 @@ class VideoRenderAgent(PipelineAgent):
         thumbnail: dict[str, Any],
         output_path: Path,
         temp_path: Path,
+        duration_seconds: int,
     ) -> None:
         audio_path = temp_path / f"input-audio{artifact_suffix(audio, '.mp3')}"
         thumbnail_path = temp_path / f"thumbnail{artifact_suffix(thumbnail, '.png')}"
         audio_path.write_bytes(await context.storage.get_bytes(audio["r2_key"]))
         thumbnail_path.write_bytes(await context.storage.get_bytes(thumbnail["r2_key"]))
+        render_duration_seconds = clamp_video_duration_seconds(duration_seconds)
 
         await self._run_ffmpeg_command(
             context,
@@ -193,7 +202,7 @@ class VideoRenderAgent(PipelineAgent):
                 "-loop",
                 "1",
                 "-framerate",
-                "1",
+                "30",
                 "-i",
                 str(thumbnail_path),
                 "-i",
@@ -213,9 +222,8 @@ class VideoRenderAgent(PipelineAgent):
                 "192k",
                 "-pix_fmt",
                 "yuv420p",
-                "-shortest",
                 "-t",
-                str(MAX_VIDEO_DURATION_SECONDS),
+                str(render_duration_seconds),
                 "-movflags",
                 "+faststart",
                 str(output_path),
@@ -605,7 +613,7 @@ def static_video_plan(payload: dict[str, Any]) -> dict[str, Any]:
         "format": {
             "width": 1280,
             "height": 720,
-            "fps": 1,
+            "fps": 30,
             "videoCodec": "h264",
             "audioCodec": "aac",
         },

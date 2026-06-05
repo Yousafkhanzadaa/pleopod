@@ -310,7 +310,37 @@ def test_static_video_plan_describes_thumbnail_render() -> None:
     assert plan["renderMode"] == "static_thumbnail"
     assert plan["format"]["width"] == 1280
     assert plan["format"]["height"] == 720
+    assert plan["format"]["fps"] == 30
     assert plan["source"]["audioUrl"] == "file:///tmp/final.mp3"
+
+
+@pytest.mark.asyncio
+async def test_static_video_command_uses_payload_duration_without_shortest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context = _Context(tmp_path)
+    agent = VideoRenderAgent()
+    captured: dict[str, list[str]] = {}
+
+    async def _run_ffmpeg_command(self, context, command) -> None:
+        captured["command"] = command
+
+    monkeypatch.setattr(VideoRenderAgent, "_run_ffmpeg_command", _run_ffmpeg_command)
+
+    await agent._run_static_video(
+        context,  # type: ignore[arg-type]
+        {"r2_key": "jobs/job-1/audio/final.mp3"},
+        {"r2_key": "jobs/job-1/thumbnail/cover.png"},
+        tmp_path / "final.mp4",
+        tmp_path,
+        duration_seconds=59,
+    )
+
+    command = captured["command"]
+    assert command[command.index("-framerate") + 1] == "30"
+    assert "-shortest" not in command
+    assert command[command.index("-t") + 1] == "59"
 
 
 @pytest.mark.asyncio
@@ -409,9 +439,18 @@ async def test_video_render_agent_uses_static_thumbnail_video_when_remotion_disa
     async def _run_render(self, context, props_path, plan_path, output_path) -> None:
         raise AssertionError("Remotion render should not run for static video")
 
-    async def _run_static_video(self, context, audio, thumbnail, output_path, temp_path) -> None:
+    async def _run_static_video(
+        self,
+        context,
+        audio,
+        thumbnail,
+        output_path,
+        temp_path,
+        duration_seconds,
+    ) -> None:
         calls["audio_key"] = audio["r2_key"]
         calls["thumbnail_key"] = thumbnail["r2_key"]
+        calls["duration_seconds"] = duration_seconds
         output_path.write_bytes(b"static-video")
 
     async def _attach_video_asset(self, context, episode_id, video_artifact) -> None:
@@ -430,6 +469,7 @@ async def test_video_render_agent_uses_static_thumbnail_video_when_remotion_disa
     assert calls == {
         "audio_key": "jobs/job-1/audio/final.mp3",
         "thumbnail_key": "jobs/job-1/thumbnail/cover.png",
+        "duration_seconds": 90,
         "attached_episode_id": "episode-1",
         "attached_render_mode": "static_thumbnail",
     }
