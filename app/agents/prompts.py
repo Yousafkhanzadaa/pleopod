@@ -201,9 +201,7 @@ Malformed output to repair:
 
 
 def script_prompt(job: dict[str, Any], memory_md: str, claims: Any) -> str:
-    target_duration_seconds = clamp_generation_duration_seconds(
-        job.get("target_duration_seconds")
-    )
+    target_duration_seconds = clamp_generation_duration_seconds(job.get("target_duration_seconds"))
     max_spoken_words = max_spoken_words_for_duration(target_duration_seconds)
     return f"""
 You are the Short Video Script Agent for Pleopod.
@@ -352,30 +350,206 @@ JSON shape:
 """.strip()
 
 
-def thumbnail_prompt(script: Any) -> str:
-    hook_text = thumbnail_hook_text(script)
+def thumbnail_director_prompt(script: Any) -> str:
     return f"""
-Create a high-performing YouTube thumbnail for a Tech short-form video.
+You are the thumbnail creative director for a factual technology-news YouTube channel.
+
+Build one high-conviction thumbnail idea for this episode:
+Title: {script.get("title")}
+Summary: {script.get("summary")}
+
+The thumbnail and title must work as a pair. The thumbnail should create one clear
+question, tension, or surprising implication that the title resolves. Do not merely
+repeat or shorten the title.
+
+Creative laws:
+- Communicate exactly one idea in under one second at phone size.
+- Use one dominant subject and at most one supporting element.
+- Prefer a concrete visual story over an infographic, collage, diagram, or UI mockup.
+- The hook must be 2-4 short words, ideally 14 characters or fewer before spaces.
+- The hook must be truthful, specific, emotionally legible, and additive to the title.
+- Avoid filler hooks such as TECH UPDATE, BREAKING NEWS, BIG CHANGE, or THE FUTURE.
+- Avoid generic AI imagery: no humanoid robot, glowing brain, circuit head, blue
+  hologram, floating interface, neon data tunnel, or globe made from circuitry unless
+  that physical object is literally central to the reported story.
+- A real public figure may be the subject only when that person is genuinely central
+  to the story. Do not invent endorsements, reactions, or events.
+- Choose a close, bold crop and a flat, limited color palette. No gradients.
+- Put the subject on one side and reserve the opposite side for large typography.
+- Keep the bottom-right corner free of essential detail for YouTube's duration badge.
+- No logos, brand marks, readable product labels, screenshots, charts, numbers, or
+  text inside the generated picture. Typography is added separately by the backend.
+- Choose accent_word as one exact word from hook.
+
+Return JSON only with this shape:
+{{
+  "hook": "2-4 WORD HOOK",
+  "accent_word": "one word from hook",
+  "focal_subject": "one concrete subject with crop and expression/action",
+  "supporting_element": "one optional concrete prop or null",
+  "visual_story": "the single frozen moment and its tension",
+  "emotion": "curiosity | tension | urgency | awe | surprise | confidence",
+  "layout": "subject_right_text_left | subject_left_text_right",
+  "image_style": "editorial_photo | documentary_portrait | conceptual_object | clean_3d_editorial",
+  "palette": "signal_yellow | electric_blue | coral_red | mint_green | hot_orange"
+}}
+""".strip()
+
+
+def thumbnail_prompt(script: Any, brief: Any | None = None) -> str:
+    creative = normalized_thumbnail_brief(script, brief)
+    subject_side = "right" if creative["layout"] == "subject_right_text_left" else "left"
+    text_side = "left" if subject_side == "right" else "right"
+    supporting_element = creative.get("supporting_element") or "none"
+    return f"""
+Create the text-free photographic artwork for a premium YouTube technology-news
+thumbnail. This is one bold visual story, not a poster or infographic.
 
 Episode title: {script.get("title")}
 Summary: {script.get("summary")}
-Exact large text hook: {hook_text}
+Intended viewer emotion: {creative["emotion"]}
+Single visual story: {creative["visual_story"]}
+Dominant focal subject: {creative["focal_subject"]}
+Only supporting element: {supporting_element}
+Art direction: {creative["image_style"]}
+Color direction: {creative["palette"]}
 
 Direction:
 - 16:9 YouTube thumbnail, 1280x720, optimized for mobile Home/Suggested feeds.
-- One dominant focal subject tied to the episode topic.
-- Use the exact large text hook above as the only readable text, 2-4 very large words.
-- Do not render any other readable text, numbers, badges, captions, UI labels, charts,
-  lower-thirds, feature cards, stats panels, watermarks, or logos.
+- Compose the dominant subject on the {subject_side}, filling roughly 45-55% of the
+  frame with a close, confident crop.
+- Reserve the {text_side} 40-45% as genuinely clean negative space. The backend will
+  place the exact hook there later.
+- Use one subject and at most one supporting prop. Eliminate everything nonessential.
+- Make the visual relationship immediately understandable without reading the title.
+- Use a modern editorial-photography or premium advertising finish: tactile materials,
+  believable light, crisp edges, controlled depth, and intentional art direction.
+- Use flat color fields or a real environment with two main color families and one
+  accent. No gradients, rainbow palettes, neon fog, particle clouds, or cyberpunk glow.
+- Generate absolutely no text: no letters, words, numbers, labels, badges, captions,
+  UI, charts, lower-thirds, feature cards, signs, watermarks, or logos anywhere.
+- No collage, multi-panel layout, contact sheet, tiny objects, or decorative filler.
+- Avoid humanoid robots, glowing brains, circuit heads, holographic interfaces, and
+  generic blue AI imagery unless explicitly required by the focal subject above.
 - Leave the bottom-right corner visually clean for YouTube's duration badge.
-- Make the hook readable at phone size with bold type and strong contrast.
-- Use a simple composition: foreground subject, clean background, clear negative space.
-- Use 2 main color families plus one accent color; avoid busy rainbow palettes.
-- No fake logos.
-- Avoid fake screenshots, fake product markings, and misleading imagery.
-- Avoid clickbait; the thumbnail promise must match the episode.
-- Use high contrast and clean composition.
+- Do not fabricate an event, product design, reaction, or endorsement.
+- The image must remain truthful to the episode while creating curiosity.
 """.strip()
+
+
+def normalized_thumbnail_brief(script: Any, brief: Any | None = None) -> dict[str, Any]:
+    fallback = fallback_thumbnail_brief(script)
+    if not isinstance(brief, dict):
+        return fallback
+
+    normalized = dict(fallback)
+    for key in normalized:
+        value = brief.get(key)
+        if value not in (None, ""):
+            normalized[key] = value
+
+    hook = normalize_thumbnail_hook(normalized.get("hook"))
+    if not hook:
+        hook = fallback["hook"]
+    normalized["hook"] = hook
+    hook_words = thumbnail_hook_words(hook)
+
+    accent_tokens = thumbnail_hook_words(str(normalized.get("accent_word") or ""))
+    accent_word = accent_tokens[0] if len(accent_tokens) == 1 else ""
+    if accent_word not in hook_words:
+        accent_word = hook_words[-1] if hook_words else fallback["accent_word"]
+    normalized["accent_word"] = accent_word
+
+    allowed = {
+        "emotion": {"curiosity", "tension", "urgency", "awe", "surprise", "confidence"},
+        "layout": {"subject_right_text_left", "subject_left_text_right"},
+        "image_style": {
+            "editorial_photo",
+            "documentary_portrait",
+            "conceptual_object",
+            "clean_3d_editorial",
+        },
+        "palette": {
+            "signal_yellow",
+            "electric_blue",
+            "coral_red",
+            "mint_green",
+            "hot_orange",
+        },
+    }
+    for key, choices in allowed.items():
+        if normalized.get(key) not in choices:
+            normalized[key] = fallback[key]
+    return normalized
+
+
+def fallback_thumbnail_brief(script: Any) -> dict[str, Any]:
+    title = str(script.get("title") or "").strip()
+    summary = str(script.get("summary") or "").strip()
+    combined = f"{title} {summary}".lower()
+    hook = thumbnail_hook_text(script)
+
+    if re.search(r"\b(vaccine|clinical trial|human trial)\b", combined):
+        focal_subject = "a single pristine vaccine vial in extreme close-up"
+        supporting = "one subtle molecular form suspended inside the glass"
+        visual_story = (
+            "A medicine vial appears newly engineered, precise, and ready for a human trial."
+        )
+        emotion = "awe"
+        image_style = "conceptual_object"
+        palette = "mint_green"
+    elif re.search(r"\b(chip|semiconductor|gpu|superchip|processor)\b", combined):
+        focal_subject = "one oversized advanced processor in sharp three-quarter close-up"
+        supporting = "one clean fracture line or pressure reflection suggesting market tension"
+        visual_story = (
+            "A valuable processor sits under visible pressure, turning an abstract "
+            "market story into one object."
+        )
+        emotion = "tension"
+        image_style = "conceptual_object"
+        palette = "hot_orange"
+    elif re.search(r"\b(order|government|regulat|commission|policy|restriction)\b", combined):
+        focal_subject = "one imposing government document folder with a simple sealed edge"
+        supporting = "one restrained technology object caught beneath the folder"
+        visual_story = (
+            "Government authority visibly presses against a technology object, "
+            "freezing the policy conflict in one frame."
+        )
+        emotion = "tension"
+        image_style = "conceptual_object"
+        palette = "coral_red"
+    elif re.search(r"\b(ipo|valuation|billion|market|sell-?off|bubble)\b", combined):
+        focal_subject = "one glossy technology sphere under visible financial pressure"
+        supporting = "one small red market marker without any numbers or letters"
+        visual_story = (
+            "A valuable technology object looks inflated and close to breaking, "
+            "expressing market doubt without a chart."
+        )
+        emotion = "tension"
+        image_style = "clean_3d_editorial"
+        palette = "coral_red"
+    else:
+        focal_subject = "one concrete object that literally represents the episode's central event"
+        supporting = None
+        visual_story = (
+            "The central subject is caught at the exact moment the episode's "
+            "consequence becomes visible."
+        )
+        emotion = "curiosity"
+        image_style = "editorial_photo"
+        palette = "signal_yellow"
+
+    return {
+        "hook": hook,
+        "accent_word": thumbnail_hook_words(hook)[-1],
+        "focal_subject": focal_subject,
+        "supporting_element": supporting,
+        "visual_story": visual_story,
+        "emotion": emotion,
+        "layout": "subject_right_text_left",
+        "image_style": image_style,
+        "palette": palette,
+    }
 
 
 def thumbnail_hook_text(script: Any) -> str:
@@ -383,14 +557,27 @@ def thumbnail_hook_text(script: Any) -> str:
     summary = str(script.get("summary") or "").strip()
     combined = f"{title} {summary}".lower()
 
+    if re.search(r"\b(vaccine|clinical trial|human trial)\b", combined) and "ai" in combined:
+        return "AI-MADE VACCINE"
+    if re.search(r"\b(bubble|sell-?off|slump|crash)\b", combined) and "ai" in combined:
+        return "AI BUBBLE?"
+    if re.search(r"\b(ipo|valuation)\b", combined) and re.search(r"\$?\d+\s*b", combined):
+        amount = re.search(r"\$?\d+\s*b", combined)
+        if amount:
+            compact_amount = re.sub(r"\s+", "", amount.group(0)).upper()
+            if not compact_amount.startswith("$"):
+                compact_amount = f"${compact_amount}"
+            return f"{compact_amount} AI BET"
+    if re.search(r"\b(supercomputer|superchip|dgx|rtx)\b", combined):
+        return "DESKTOP SUPERCOMPUTER"
     if "ai" in combined and re.search(
         r"\b(catastroph\w*|risk\w*|threat\w*|danger\w*|warning\w*)\b", combined
     ):
-        return "AI WARNING"
+        return "HOW BAD?"
     if "ai" in combined and re.search(
-        r"\b(order|oversight|regulat\w*|policy|government|framework)\b", combined
+        r"\b(order|oversight|regulat\w*|policy|government|framework|restriction)\b", combined
     ):
-        return "AI OVERSIGHT"
+        return "WHO CONTROLS AI?"
 
     words: list[str] = []
     for source in (title.split(":", 1)[0], title, summary):
@@ -401,10 +588,22 @@ def thumbnail_hook_text(script: Any) -> str:
         if len(candidate_words) > len(words):
             words = candidate_words
     if not words:
-        return "TECH SHIFT"
+        return "WHAT CHANGED?"
     if len(words) == 1:
-        return f"{words[0]} UPDATE"
+        return f"WHY {words[0]}?"
     return " ".join(words[:3]).upper()
+
+
+def normalize_thumbnail_hook(value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip()).upper()
+    if not text:
+        return ""
+    words = thumbnail_hook_words(text)
+    if not 2 <= len(words) <= 4:
+        return ""
+    if len(text) > 40:
+        return ""
+    return text
 
 
 _THUMBNAIL_HOOK_STOP_WORDS = {

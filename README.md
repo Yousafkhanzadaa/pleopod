@@ -213,6 +213,7 @@ Most settings are documented in `.env.example`. The most important groups are:
 | `THUMBNAIL_IMAGE_PROVIDER` | `auto`, `fake`, `gemini`, or `openai`. `auto` uses fake thumbnails in fake mode and OpenAI otherwise. |
 | `OPENAI_API_KEY` | Required when thumbnail generation resolves to OpenAI. |
 | `OPENAI_IMAGE_MODEL` | Defaults to `gpt-image-2` for generated thumbnails. |
+| `GEMINI_THUMBNAIL_MODEL` | Creates the structured thumbnail hook and visual brief. Defaults to `gemini-2.5-flash-lite`; image generation remains a single request. |
 | `TTS_GENERATION_MODE` | `chunked` for safer Gemini TTS calls, or `single_request` for short episodes only. |
 | `AUTOPUBLISH_*` | Topic Scout settings for scheduled self-running publishing jobs. |
 | `MAX_AGENT_ATTEMPTS` | Retry budget for failed queue messages. |

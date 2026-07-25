@@ -78,6 +78,29 @@ class PodcastScript(AgentOutputModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class ThumbnailCreativeBrief(AgentOutputModel):
+    hook: str = Field(min_length=2, max_length=40)
+    accent_word: str = Field(min_length=1, max_length=20)
+    focal_subject: str = Field(min_length=3, max_length=180)
+    supporting_element: str | None = Field(default=None, max_length=140)
+    visual_story: str = Field(min_length=8, max_length=300)
+    emotion: Literal["curiosity", "tension", "urgency", "awe", "surprise", "confidence"]
+    layout: Literal["subject_right_text_left", "subject_left_text_right"]
+    image_style: Literal[
+        "editorial_photo",
+        "documentary_portrait",
+        "conceptual_object",
+        "clean_3d_editorial",
+    ]
+    palette: Literal[
+        "signal_yellow",
+        "electric_blue",
+        "coral_red",
+        "mint_green",
+        "hot_orange",
+    ]
+
+
 class VerificationLineCheck(AgentOutputModel):
     line: str = ""
     claim: str | None = None
