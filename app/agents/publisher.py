@@ -96,6 +96,8 @@ class PublisherAgent(PipelineAgent):
 def duration_seconds_from_artifact(artifact: dict[str, Any]) -> int | None:
     metadata = artifact.get("metadata") or {}
     raw_duration = metadata.get("duration_seconds")
+    if raw_duration is None:
+        return None
     try:
         duration = float(raw_duration)
     except (TypeError, ValueError):

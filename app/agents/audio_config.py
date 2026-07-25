@@ -5,7 +5,7 @@ from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.core.config import Settings
-from app.core.text import chunk_dialogue
+from app.core.text import chunk_dialogue, strip_speaker_labels
 from app.core.tts import GEMINI_TTS_VOICE_NAMES, coerce_gemini_tts_voice_name
 from app.models.enums import ArtifactType, PipelineStep
 
@@ -17,6 +17,8 @@ _TTS_PREAMBLE_RE = re.compile(
 _TRANSCRIPT_HEADER_RE = re.compile(r"^\s*#{0,6}\s*TRANSCRIPT:?\s*", re.IGNORECASE)
 GEMINI_TTS_SAFE_SOURCE_CHARS = 1200
 GEMINI_TTS_SAFE_PROMPT_CHARS = 1800
+OPENAI_TTS_SAFE_SOURCE_CHARS = 3800
+_SPEAKER_PREFIX_RE = re.compile(r"^([^:\n]{1,48}):\s*")
 
 
 class AudioConfigAgent(PipelineAgent):
@@ -44,20 +46,30 @@ def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, An
     if not transcript:
         raise ValueError("Verified script transcript is empty")
 
+    voice_provider = settings.resolved_voice_provider
+    source_limit = (
+        OPENAI_TTS_SAFE_SOURCE_CHARS
+        if voice_provider == "openai"
+        else GEMINI_TTS_SAFE_SOURCE_CHARS
+    )
     generation_mode = settings.tts_generation_mode
     max_chunk_chars = (
         len(transcript)
         if generation_mode == "single_request"
-        else min(settings.max_tts_chunk_chars, GEMINI_TTS_SAFE_SOURCE_CHARS)
+        else min(settings.max_tts_chunk_chars, source_limit)
     )
-    chunks = []
+    chunks: list[dict[str, Any]] = []
     transcript_chunks = (
         [transcript]
         if generation_mode == "single_request"
         else chunk_dialogue(transcript, max_chunk_chars)
     )
     for index, chunk in enumerate(transcript_chunks, start=1):
-        prompt = build_tts_prompt(chunk, speakers)
+        prompt = (
+            narration_text(chunk, [speaker["name"] for speaker in speakers])
+            if voice_provider == "openai"
+            else build_tts_prompt(chunk, speakers)
+        )
         chunks.append(
             {
                 "index": index,
@@ -70,11 +82,27 @@ def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, An
     max_prompt_chars = (
         max(chunk["prompt_char_count"] for chunk in chunks)
         if generation_mode == "single_request"
-        else GEMINI_TTS_SAFE_PROMPT_CHARS
+        else (
+            OPENAI_TTS_SAFE_SOURCE_CHARS
+            if voice_provider == "openai"
+            else GEMINI_TTS_SAFE_PROMPT_CHARS
+        )
     )
 
+    if voice_provider == "openai":
+        tts_model = settings.openai_tts_model
+        voice_name = settings.openai_tts_voice
+    else:
+        tts_model = settings.gemini_tts_model
+        voice_name = coerce_gemini_tts_voice_name(speakers[0].get("voice_name"), 0)
+
     return {
-        "tts_model": settings.gemini_tts_model,
+        "voice_provider": voice_provider,
+        "tts_model": tts_model,
+        "tts_instructions": (
+            settings.openai_tts_instructions if voice_provider == "openai" else None
+        ),
+        "tts_speed": settings.openai_tts_speed if voice_provider == "openai" else 1.0,
         "export_format": settings.audio_export_format,
         "generation_mode": generation_mode,
         "max_source_chunk_chars": max_chunk_chars,
@@ -82,7 +110,11 @@ def build_tts_config(script: dict[str, Any], settings: Settings) -> dict[str, An
         "speakers": [
             {
                 "speaker": speaker["name"],
-                "voice_name": coerce_gemini_tts_voice_name(speaker.get("voice_name"), i),
+                "voice_name": (
+                    voice_name
+                    if voice_provider == "openai"
+                    else coerce_gemini_tts_voice_name(speaker.get("voice_name"), i)
+                ),
                 "style": speaker.get("style"),
             }
             for i, speaker in enumerate(speakers)
@@ -103,23 +135,54 @@ def tts_config_needs_rebuild(
         return True
     if settings and generation_mode != settings.tts_generation_mode:
         return True
+    provider = str(config.get("voice_provider") or "gemini")
+    resolved_provider = (
+        str(getattr(settings, "resolved_voice_provider", provider)) if settings else provider
+    )
+    if settings and provider != resolved_provider:
+        return True
+    if settings:
+        expected_model = (
+            getattr(settings, "openai_tts_model", config.get("tts_model"))
+            if provider == "openai"
+            else getattr(settings, "gemini_tts_model", config.get("tts_model"))
+        )
+        if config.get("tts_model") != expected_model:
+            return True
+        if provider == "openai":
+            if config.get("tts_instructions") != getattr(
+                settings, "openai_tts_instructions", config.get("tts_instructions")
+            ):
+                return True
+            if float(config.get("tts_speed") or 1.0) != float(
+                getattr(settings, "openai_tts_speed", config.get("tts_speed") or 1.0)
+            ):
+                return True
     if generation_mode == "single_request" and len(chunks) != 1:
         return True
+    source_limit = (
+        OPENAI_TTS_SAFE_SOURCE_CHARS if provider == "openai" else GEMINI_TTS_SAFE_SOURCE_CHARS
+    )
+    prompt_limit = (
+        OPENAI_TTS_SAFE_SOURCE_CHARS if provider == "openai" else GEMINI_TTS_SAFE_PROMPT_CHARS
+    )
     if generation_mode == "chunked" and int(
         config.get("max_source_chunk_chars") or 10**9
-    ) > GEMINI_TTS_SAFE_SOURCE_CHARS:
+    ) > source_limit:
         return True
     speakers = config.get("speakers") or []
     if len(speakers) != 1:
         return True
     for speaker in speakers:
         voice_name = str(speaker.get("voice_name") or "").strip().lower()
-        if voice_name not in GEMINI_TTS_VOICE_NAMES:
+        if provider == "openai" and not voice_name:
+            return True
+        if provider != "openai" and voice_name not in GEMINI_TTS_VOICE_NAMES:
             return True
     for chunk in chunks:
         transcript = chunk.get("transcript") or ""
         prompt_char_count = int(chunk.get("prompt_char_count") or len(transcript))
-        if generation_mode == "chunked" and prompt_char_count > GEMINI_TTS_SAFE_PROMPT_CHARS:
+        if generation_mode == "chunked" and prompt_char_count > prompt_limit:
             return True
         if "### DIRECTOR'S NOTES" in transcript:
             return True
@@ -138,6 +201,28 @@ def source_transcript_from_tts_prompt(prompt: str) -> str:
     if marker:
         return source.strip()
     return normalize_tts_transcript(prompt)
+
+
+def narration_text(
+    transcript_chunk: str,
+    speaker_names: list[str] | None = None,
+) -> str:
+    """Remove dialogue labels so a single-narrator TTS model does not read them."""
+    normalized = normalize_tts_transcript(transcript_chunk)
+    known_speakers = list(speaker_names or [])
+    if not known_speakers:
+        known_speakers.extend(
+            match.group(1).strip()
+            for raw_line in normalized.splitlines()
+            if (match := _SPEAKER_PREFIX_RE.match(raw_line.strip()))
+        )
+    lines: list[str] = []
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        lines.append(strip_speaker_labels(line, known_speakers))
+    return "\n".join(line for line in lines if line)
 
 
 def build_tts_prompt(transcript_chunk: str, speakers: list[dict[str, Any]]) -> str:

@@ -356,17 +356,22 @@ completing the generation job immediately.
 
 ## 10. Video Render Agent
 
-The Video Render Agent turns the generated podcast into an MP4. With
-`ENABLE_VIDEO_RENDERING=false`, it creates a lightweight static thumbnail+audio
-video with ffmpeg. With `ENABLE_VIDEO_RENDERING=true`, it creates the animated
-Remotion video.
+The Video Render Agent turns the generated video into an MP4. With
+`ENABLE_VIDEO_RENDERING=false` (the default), it renders an engaging short-form
+video with ffmpeg only, no headless browser: animated word captions over a Ken
+Burns background image, an audio-reactive waveform, a progress bar, an intro
+title card, and a closing source card. This is cheap enough for a small host
+such as a Railway hobby instance. With `ENABLE_VIDEO_RENDERING=true`, it instead
+creates the heavier animated Remotion video.
 
 It reads:
 
 - published episode metadata
 - verified script and transcript
-- final audio artifact
-- thumbnail artifact
+- final audio artifact (including exact word/line timings when alignment succeeds,
+  with per-segment timing fallback)
+- thumbnail artifact (the caption background)
+- source list (for the on-screen source card)
 
 It writes:
 
@@ -376,10 +381,37 @@ jobs/{job_id}/video/video_plan.json
 episodes/{episode_id}/video/final.mp4
 ```
 
-For animated renders, the agent calls the independent `remotion-renderer/`
-package. If `GEMINI_API_KEY` is configured, Gemini 2.5 Flash directs the scene
-plan. If no Gemini key is present, the renderer uses a deterministic fallback
-plan for local testing.
+The ffmpeg renderer (`app/services/motion_video.py`) is capability-detected: it
+burns captions when the ffmpeg build has libass (the Docker image installs a
+font via `fonts-dejavu-core`) and otherwise still renders the motion background
+and waveform. If ffmpeg cannot build the motion background at all, it falls back
+to a plain static thumbnail+audio video so scheduled runs never break.
+
+### Animated presentation renderer (ENABLE_VIDEO_RENDERING=true)
+
+For the richer render, the agent first builds a **scene plan** in the backend
+(`app/agents/video_director.py`): the Scene Director asks Gemini to break the
+script into ordered presentation scenes (title, statement, bullets, chart,
+timeline, quote, diagram, source, outro) and to extract chart data. Every chart
+number is validated against the fact-checked claim bank
+(`ground_scene_charts`), so a figure that is not backed by a claim is dropped
+and the scene downgraded to text. The plan is stored as `scene_plan_json` and is
+engine-agnostic. You can build and inspect it without rendering:
+
+```bash
+pleopod-scene-plan <job-id>
+```
+
+The plan is embedded in the render props and drawn by the Remotion
+`PresentationEpisode` composition (`remotion-renderer/src/presentation/`) as a
+flat-color editorial motion system: kinetic type, hard-edged wipes, direct SVG
+charts, bullet builds, timelines, and word-synchronized captions. The composition
+uses solid fills only and deliberately contains no gradients.
+
+The render runs in-process with headless Chromium. The Docker image bundles the
+browser and its system libraries, so it runs on Railway with no external
+services. A render is a short burst (best run from the `pleopod-autopublish`
+cron); `REMOTION_CONCURRENCY` bounds peak RAM on small instances.
 
 The final MP4 is stored as a `video_mp4` artifact and attached to the episode as an
 `episode_assets` row with `asset_type='video'`. The job becomes `completed` after

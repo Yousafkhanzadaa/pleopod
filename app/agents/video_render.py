@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import os
 import re
@@ -15,11 +16,30 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
+from app.agents.video_director import (
+    line_timings_from_segment_timings,
+    plan_video_scenes,
+    retime_existing_scene_plan,
+)
 from app.core.duration import clamp_video_duration_seconds
 from app.core.json_utils import to_pretty_json
+from app.core.text import strip_speaker_labels
 from app.models.enums import ArtifactType, JobStatus, PipelineStep
 from app.providers.storage import public_object_url
+from app.schemas.video_plan import ScenePlan
 from app.services.audio import audio_bytes_duration_seconds
+from app.services.motion_video import (
+    MotionVideoSpec,
+    build_ass_document,
+    build_ffmpeg_command,
+    caption_cues_from_line_timings,
+    captions_supported,
+    motion_background_supported,
+    motion_caption_plan,
+    resolve_caption_font_file,
+)
+
+logger = logging.getLogger(__name__)
 
 _DIALOGUE_LINE_RE = re.compile(r"^([^:]{1,48}):\s*(.+)$")
 
@@ -51,7 +71,7 @@ class VideoRenderAgent(PipelineAgent):
         episode = episode_metadata.get("episode") or {}
 
         payload = await build_video_payload(job, script, episode, audio, thumbnail, context)
-        render_mode = "remotion" if context.settings.enable_video_rendering else "static_thumbnail"
+        render_mode = "remotion"
         payload_artifact = await context.artifact_service.put_json(
             f"jobs/{job_id}/video/video_payload.json",
             payload,
@@ -67,29 +87,42 @@ class VideoRenderAgent(PipelineAgent):
             output_path = temp_path / f"final.{context.settings.remotion_render_output_format}"
 
             if context.settings.enable_video_rendering:
+                render_mode = "remotion"
+                scene_plan = await self._build_scene_plan(
+                    context,
+                    job,
+                    script,
+                    audio,
+                    duration_seconds=int(payload["durationSeconds"]),
+                    reuse_existing=bool(message.get("reuse_scene_plan")),
+                )
+                await context.artifact_service.put_json(
+                    f"jobs/{job_id}/video/scene_plan.json",
+                    scene_plan,
+                    ArtifactType.SCENE_PLAN_JSON,
+                    job_id=job_id,
+                    episode_id=episode_id,
+                )
+                plan_path.write_text(to_pretty_json(scene_plan), encoding="utf-8")
                 with local_asset_server(context) as local_asset_base_url:
                     render_payload = renderable_payload(
-                        payload,
+                        {**payload, "scenePlan": scene_plan},
                         audio_key=audio["r2_key"],
                         thumbnail_key=thumbnail["r2_key"],
                         local_asset_base_url=local_asset_base_url,
                     )
                     props_path.write_text(to_pretty_json(render_payload), encoding="utf-8")
-                    await self._run_director(context, props_path, plan_path)
-                    await self._run_render(context, props_path, plan_path, output_path)
+                    await self._run_render(context, props_path, output_path)
             else:
-                props_path.write_text(to_pretty_json(payload), encoding="utf-8")
-                plan_path.write_text(
-                    to_pretty_json(static_video_plan(payload)),
-                    encoding="utf-8",
-                )
-                await self._run_static_video(
+                render_mode = await self._run_motion_caption_video(
                     context,
+                    payload,
                     audio,
                     thumbnail,
                     output_path,
                     temp_path,
-                    duration_seconds=int(payload["durationSeconds"]),
+                    props_path=props_path,
+                    plan_path=plan_path,
                 )
 
             plan = plan_path.read_text(encoding="utf-8")
@@ -160,8 +193,9 @@ class VideoRenderAgent(PipelineAgent):
         self,
         context: AgentContext,
         props_path: Path,
-        plan_path: Path,
         output_path: Path,
+        *,
+        composition: str = "PresentationEpisode",
     ) -> None:
         await self._run_remotion_command(
             context,
@@ -172,12 +206,117 @@ class VideoRenderAgent(PipelineAgent):
                 "--",
                 "--props",
                 str(props_path),
-                "--plan",
-                str(plan_path),
+                "--composition",
+                composition,
                 "--out",
                 str(output_path),
             ],
         )
+        await self._normalize_render_audio(context, output_path)
+
+    async def _normalize_render_audio(
+        self,
+        context: AgentContext,
+        output_path: Path,
+    ) -> None:
+        """Normalize narration for web-video playback without re-encoding frames."""
+        if not shutil.which("ffmpeg"):
+            logger.warning("ffmpeg is unavailable; skipping final audio loudness normalization")
+            return
+        normalized_path = output_path.with_name(
+            f"{output_path.stem}.normalized{output_path.suffix}"
+        )
+        command = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(output_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0",
+            "-c:v",
+            "copy",
+            "-af",
+            "loudnorm=I=-16:TP=-1.5:LRA=11",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-ar",
+            "48000",
+            "-movflags",
+            "+faststart",
+            str(normalized_path),
+        ]
+        try:
+            await self._run_ffmpeg_command(context, command)
+        except RuntimeError:
+            logger.warning(
+                "Final audio loudness normalization failed; keeping the Remotion output",
+                exc_info=True,
+            )
+            return
+        shutil.move(normalized_path, output_path)
+
+    async def _build_scene_plan(
+        self,
+        context: AgentContext,
+        job: dict[str, Any],
+        script: dict[str, Any],
+        audio: dict[str, Any],
+        *,
+        duration_seconds: int,
+        reuse_existing: bool = False,
+    ) -> dict[str, Any]:
+        job_id = str(job["id"])
+        claims = await self._latest_list(context, job_id, ArtifactType.CLAIM_BANK_JSON)
+        raw_sources = await self._latest_list(context, job_id, ArtifactType.SOURCES_JSON)
+        source_urls = [
+            str(source.get("url") if isinstance(source, dict) else source)
+            for source in raw_sources
+            if (source.get("url") if isinstance(source, dict) else source)
+        ]
+        metadata = audio.get("metadata") or {}
+        line_timings = metadata.get("line_timings") or line_timings_from_segment_timings(
+            metadata.get("segment_timings") or []
+        )
+        if reuse_existing:
+            existing = ScenePlan.model_validate(
+                await context.latest_json(job_id, ArtifactType.SCENE_PLAN_JSON)
+            )
+            return retime_existing_scene_plan(
+                existing,
+                duration_seconds=duration_seconds,
+                line_timings=line_timings or None,
+                word_timings=metadata.get("word_timings") or None,
+                source_urls=source_urls,
+                claims=claims,
+            ).model_dump(mode="json")
+        plan = await plan_video_scenes(
+            script=script if isinstance(script, dict) else {},
+            claims=claims,
+            line_timings=line_timings or None,
+            duration_seconds=duration_seconds,
+            category=str(job.get("category") or "Tech"),
+            ai=context.ai,
+            model=context.settings.remotion_video_director_model,
+            source_urls=source_urls,
+            word_timings=metadata.get("word_timings") or None,
+        )
+        return plan.model_dump(mode="json")
+
+    async def _latest_list(
+        self,
+        context: AgentContext,
+        job_id: str,
+        artifact_type: ArtifactType,
+    ) -> list[Any]:
+        try:
+            value = await context.latest_json(job_id, artifact_type)
+        except RuntimeError:
+            return []
+        return value if isinstance(value, list) else []
 
     async def _run_static_video(
         self,
@@ -229,6 +368,131 @@ class VideoRenderAgent(PipelineAgent):
                 str(output_path),
             ],
         )
+
+    async def _run_motion_caption_video(
+        self,
+        context: AgentContext,
+        payload: dict[str, Any],
+        audio: dict[str, Any],
+        thumbnail: dict[str, Any],
+        output_path: Path,
+        temp_path: Path,
+        *,
+        props_path: Path,
+        plan_path: Path,
+    ) -> str:
+        """Render an engaging caption + Ken Burns video with ffmpeg.
+
+        Falls back to the plain static thumbnail video if ffmpeg cannot build
+        the motion background, so scheduled autopublish runs never break on a
+        rendering edge case.
+        """
+        props_path.write_text(to_pretty_json(payload), encoding="utf-8")
+        fmt = payload.get("format") or {}
+        width = int(fmt.get("width") or 1920)
+        height = int(fmt.get("height") or 1080)
+        fps = int(fmt.get("fps") or 30)
+        duration_seconds = int(payload["durationSeconds"])
+        settings = context.settings
+
+        if shutil.which("ffmpeg") and motion_background_supported():
+            audio_path = temp_path / f"input-audio{artifact_suffix(audio, '.mp3')}"
+            image_path = temp_path / f"background{artifact_suffix(thumbnail, '.png')}"
+            audio_path.write_bytes(await context.storage.get_bytes(audio["r2_key"]))
+            image_path.write_bytes(await context.storage.get_bytes(thumbnail["r2_key"]))
+
+            brand = payload.get("brand") or {}
+            accent_color = str(brand.get("accentColor") or "#22d3ee")
+            waveform = bool(getattr(settings, "video_waveform", True))
+            captions_on = captions_supported()
+
+            ass_path: Path | None = None
+            fonts_dir: str | None = None
+            if captions_on:
+                cues = caption_cues_from_line_timings(
+                    payload.get("lineTimings") or [],
+                    max_words=int(getattr(settings, "video_caption_max_words", 3)),
+                )
+                font_file = resolve_caption_font_file(settings)
+                fonts_dir = str(Path(font_file).parent) if font_file else None
+                ass_document = build_ass_document(
+                    cues,
+                    video_width=width,
+                    video_height=height,
+                    font_name=str(getattr(settings, "video_caption_font_name", "DejaVu Sans")),
+                    accent_color=accent_color,
+                    title=payload.get("title"),
+                    brand=brand.get("name"),
+                    source_label=await self._source_label(context, payload),
+                    duration=duration_seconds,
+                )
+                ass_path = temp_path / "captions.ass"
+                ass_path.write_text(ass_document, encoding="utf-8")
+
+            plan_path.write_text(
+                to_pretty_json(
+                    motion_caption_plan(payload, captions=captions_on, waveform=waveform)
+                ),
+                encoding="utf-8",
+            )
+            spec = MotionVideoSpec(
+                image_path=str(image_path),
+                audio_path=str(audio_path),
+                output_path=str(output_path),
+                duration_seconds=duration_seconds,
+                width=width,
+                height=height,
+                fps=fps,
+                accent_color=accent_color,
+                ass_path=str(ass_path) if ass_path else None,
+                fonts_dir=fonts_dir,
+                waveform=waveform,
+                render_timeout_seconds=settings.remotion_render_timeout_seconds,
+            )
+            try:
+                await self._run_ffmpeg_command(context, build_ffmpeg_command(spec))
+                return "motion_caption"
+            except RuntimeError:
+                logger.warning(
+                    "Motion caption render failed; falling back to static thumbnail video",
+                    exc_info=True,
+                )
+
+        plan_path.write_text(to_pretty_json(static_video_plan(payload)), encoding="utf-8")
+        await self._run_static_video(
+            context,
+            audio,
+            thumbnail,
+            output_path,
+            temp_path,
+            duration_seconds=duration_seconds,
+        )
+        return "static_thumbnail"
+
+    async def _source_label(
+        self,
+        context: AgentContext,
+        payload: dict[str, Any],
+    ) -> str | None:
+        job_id = str(payload.get("jobId") or "")
+        if not job_id:
+            return None
+        try:
+            sources = await context.latest_json(job_id, ArtifactType.SOURCES_JSON)
+        except Exception:  # noqa: BLE001 - source card is best effort
+            return None
+
+        domains: list[str] = []
+        for source in sources if isinstance(sources, list) else []:
+            url = source.get("url") if isinstance(source, dict) else source
+            domain = _source_domain(str(url or ""))
+            if domain and domain not in domains:
+                domains.append(domain)
+            if len(domains) >= 3:
+                break
+        if not domains:
+            return None
+        return "Sources: " + " · ".join(domains)
 
     async def _run_ffmpeg_command(
         self,
@@ -382,6 +646,10 @@ async def build_video_payload(
     audio_duration_seconds = await resolve_audio_duration_seconds(audio_artifact, context)
     duration_seconds = video_duration_seconds(job, episode, audio_duration_seconds)
     line_timings = clip_line_timings(build_dialogue_timings(audio_artifact), duration_seconds)
+    word_timings = clip_word_timings(
+        (audio_artifact.get("metadata") or {}).get("word_timings") or [],
+        duration_seconds,
+    )
     return {
         "jobId": str(job["id"]),
         "episodeId": str(episode.get("id") or (job.get("metadata") or {}).get("episode_id") or ""),
@@ -405,6 +673,7 @@ async def build_video_payload(
         ],
         "transcript": script.get("transcript") or "",
         "lineTimings": line_timings,
+        "wordTimings": word_timings,
         "chapters": normalize_chapters(script.get("chapters") or []),
         "format": {
             "platform": "youtube",
@@ -417,9 +686,9 @@ async def build_video_payload(
         "brand": {
             "name": "Pleopod",
             "tagline": "Factual tech videos, generated with evidence.",
-            "primaryColor": "#22d3ee",
-            "accentColor": "#f59e0b",
-            "backgroundColor": "#101216",
+            "primaryColor": "#5B7CFA",
+            "accentColor": "#F4C95D",
+            "backgroundColor": "#0B0D10",
         },
     }
 
@@ -480,6 +749,36 @@ def clip_line_timings(
     return clipped
 
 
+def clip_word_timings(
+    word_timings: list[dict[str, Any]],
+    duration_seconds: int,
+) -> list[dict[str, Any]]:
+    clipped: list[dict[str, Any]] = []
+    for timing in word_timings:
+        if not isinstance(timing, dict):
+            continue
+        word = str(timing.get("word") or "").strip()
+        start_seconds = nonnegative_float(
+            timing.get("startSeconds", timing.get("start_seconds"))
+        )
+        end_seconds = nonnegative_float(timing.get("endSeconds", timing.get("end_seconds")))
+        if not word or start_seconds is None or end_seconds is None:
+            continue
+        if start_seconds >= duration_seconds:
+            continue
+        clipped_end = min(end_seconds, float(duration_seconds))
+        if clipped_end <= start_seconds:
+            continue
+        clipped.append(
+            {
+                "word": word,
+                "startSeconds": round_seconds(start_seconds),
+                "endSeconds": round_seconds(clipped_end),
+            }
+        )
+    return clipped
+
+
 def positive_float(value: Any) -> float | None:
     try:
         parsed = float(value)
@@ -503,6 +802,32 @@ def build_dialogue_timings(audio_artifact: dict[str, Any]) -> list[dict[str, Any
     metadata = audio_artifact.get("metadata") or {}
     if not isinstance(metadata, dict):
         return []
+
+    aligned_line_timings = metadata.get("line_timings") or []
+    if isinstance(aligned_line_timings, list) and aligned_line_timings:
+        aligned_timings: list[dict[str, Any]] = []
+        for index, timing in enumerate(aligned_line_timings, start=1):
+            if not isinstance(timing, dict):
+                continue
+            start_seconds = nonnegative_float(timing.get("start_seconds"))
+            end_seconds = nonnegative_float(timing.get("end_seconds"))
+            if (
+                start_seconds is None
+                or end_seconds is None
+                or end_seconds <= start_seconds
+            ):
+                continue
+            aligned_timings.append(
+                {
+                    "id": str(timing.get("id") or f"line_{index:03d}"),
+                    "speaker": str(timing.get("speaker") or ""),
+                    "text": str(timing.get("text") or ""),
+                    "startSeconds": round_seconds(start_seconds),
+                    "endSeconds": round_seconds(end_seconds),
+                }
+            )
+        if aligned_timings:
+            return aligned_timings
 
     segment_timings = metadata.get("segment_timings") or []
     if not isinstance(segment_timings, list):
@@ -556,8 +881,23 @@ def parse_dialogue_lines(transcript: str) -> list[dict[str, str]]:
         match = _DIALOGUE_LINE_RE.match(line)
         if not match:
             continue
-        lines.append({"speaker": match.group(1).strip(), "text": match.group(2).strip()})
+        speaker = match.group(1).strip()
+        lines.append(
+            {
+                "speaker": speaker,
+                "text": strip_speaker_labels(match.group(2), [speaker]),
+            }
+        )
     return lines
+
+
+def _source_domain(url: str) -> str:
+    try:
+        hostname = urlparse(url).hostname or ""
+    except ValueError:
+        return ""
+    hostname = hostname.lower().strip(".")
+    return hostname[4:] if hostname.startswith("www.") else hostname
 
 
 def nonnegative_float(value: Any) -> float | None:

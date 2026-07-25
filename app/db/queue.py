@@ -180,7 +180,7 @@ class QueueRepository(QueueStore):
                 {"queue_name": queue_name, "msg_id": msg_id},
             )
             await self.session.commit()
-            return bool(result.rowcount)
+            return bool(getattr(result, "rowcount", 0))
 
         result = await self.session.execute(
             text("select pgmq.delete(cast(:queue_name as text), cast(:msg_id as bigint))"),
@@ -270,7 +270,7 @@ class QueueRepository(QueueStore):
                 {"queue_name": queue_name, "msg_id": msg_id, "now": now},
             )
             await self.session.commit()
-            return bool(result.rowcount)
+            return bool(getattr(result, "rowcount", 0))
 
         result = await self.session.execute(
             text("select pgmq.archive(cast(:queue_name as text), cast(:msg_id as bigint))"),

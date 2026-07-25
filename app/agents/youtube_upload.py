@@ -338,9 +338,9 @@ def build_description(
 
 def claim_texts(claims: Any) -> list[str]:
     if isinstance(claims, dict | str):
-        candidates = [claims]
+        candidates: list[Any] = [claims]
     elif isinstance(claims, list | tuple):
-        candidates = claims
+        candidates = list(claims)
     else:
         return []
 
@@ -359,9 +359,9 @@ def claim_texts(claims: Any) -> list[str]:
 
 def source_citation_lines(sources: Any) -> list[str]:
     if isinstance(sources, dict | str):
-        candidates = [sources]
+        candidates: list[Any] = [sources]
     elif isinstance(sources, list | tuple):
-        candidates = sources
+        candidates = list(sources)
     else:
         return []
 

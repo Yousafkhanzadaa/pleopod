@@ -1,0 +1,73 @@
+{
+  "title": "Nvidia's new inference chip",
+  "summary": "What the new accelerator changes for AI builders.",
+  "category": "Tech",
+  "language": "en",
+  "durationSeconds": 30,
+  "audioUrl": "",
+  "thumbnailUrl": "",
+  "speakers": [
+    {"name": "Arman", "role": "Presenter", "voiceName": "Algenib", "style": "grounded"}
+  ],
+  "transcript": "TTS the following talk by Arman:\n\nArman: Nvidia just shipped a new inference chip.",
+  "lineTimings": [
+    {"id": "line_001", "speaker": "Arman", "text": "Nvidia just shipped a new inference chip", "startSeconds": 0, "endSeconds": 6},
+    {"id": "line_002", "speaker": "Arman", "text": "It runs about four times faster", "startSeconds": 6, "endSeconds": 14},
+    {"id": "line_003", "speaker": "Arman", "text": "and here is why that matters", "startSeconds": 14, "endSeconds": 22},
+    {"id": "line_004", "speaker": "Arman", "text": "inference is where the volume is", "startSeconds": 22, "endSeconds": 30}
+  ],
+  "format": {"platform": "youtube", "aspectRatio": "16:9", "width": 1920, "height": 1080, "fps": 30, "tailPadSeconds": 1},
+  "brand": {
+    "name": "Pleopod",
+    "tagline": "Factual tech videos, generated with evidence.",
+    "primaryColor": "#5B7CFA",
+    "accentColor": "#F4C95D",
+    "backgroundColor": "#0B0D10"
+  },
+  "scenePlan": {
+    "version": 1,
+    "director_model": "sample",
+    "duration_seconds": 30,
+    "line_timings": [
+      {"id": "line_001", "speaker": "Arman", "text": "Nvidia just shipped a new inference chip", "start_seconds": 0, "end_seconds": 6},
+      {"id": "line_002", "speaker": "Arman", "text": "It runs about four times faster", "start_seconds": 6, "end_seconds": 14},
+      {"id": "line_003", "speaker": "Arman", "text": "and here is why that matters", "start_seconds": 14, "end_seconds": 22},
+      {"id": "line_004", "speaker": "Arman", "text": "inference is where the volume is", "start_seconds": 22, "end_seconds": 30}
+    ],
+    "word_timings": [
+      {"word": "Nvidia", "start_seconds": 0.4, "end_seconds": 0.9},
+      {"word": "just", "start_seconds": 0.95, "end_seconds": 1.2},
+      {"word": "shipped", "start_seconds": 1.25, "end_seconds": 1.8},
+      {"word": "a", "start_seconds": 1.85, "end_seconds": 2.0},
+      {"word": "new", "start_seconds": 2.05, "end_seconds": 2.35},
+      {"word": "inference", "start_seconds": 2.4, "end_seconds": 3.05},
+      {"word": "chip.", "start_seconds": 3.1, "end_seconds": 3.55},
+      {"word": "It", "start_seconds": 6.3, "end_seconds": 6.5},
+      {"word": "runs", "start_seconds": 6.55, "end_seconds": 6.9},
+      {"word": "about", "start_seconds": 6.95, "end_seconds": 7.3},
+      {"word": "four", "start_seconds": 7.35, "end_seconds": 7.7},
+      {"word": "times", "start_seconds": 7.75, "end_seconds": 8.15},
+      {"word": "faster.", "start_seconds": 8.2, "end_seconds": 8.7},
+      {"word": "And", "start_seconds": 14.2, "end_seconds": 14.5},
+      {"word": "here", "start_seconds": 14.55, "end_seconds": 14.85},
+      {"word": "is", "start_seconds": 14.9, "end_seconds": 15.05},
+      {"word": "why", "start_seconds": 15.1, "end_seconds": 15.35},
+      {"word": "that", "start_seconds": 15.4, "end_seconds": 15.65},
+      {"word": "matters.", "start_seconds": 15.7, "end_seconds": 16.2},
+      {"word": "Inference", "start_seconds": 22.2, "end_seconds": 22.8},
+      {"word": "is", "start_seconds": 22.85, "end_seconds": 23.0},
+      {"word": "where", "start_seconds": 23.05, "end_seconds": 23.4},
+      {"word": "the", "start_seconds": 23.45, "end_seconds": 23.65},
+      {"word": "volume", "start_seconds": 23.7, "end_seconds": 24.15},
+      {"word": "is.", "start_seconds": 24.2, "end_seconds": 24.4}
+    ],
+    "scenes": [
+      {"id": "s_title", "start_seconds": 0, "end_seconds": 6, "layout": "title", "headline": "Nvidia's new inference chip", "subheadline": "The numbers that matter", "bullets": [], "diagram_items": [], "source_urls": [], "caption_line_ids": ["line_001"], "emphasis": "curious"},
+      {"id": "s_bar", "start_seconds": 6, "end_seconds": 14, "layout": "chart", "headline": "Tokens per second", "bullets": [], "chart": {"type": "bar", "title": "", "unit": "x", "caption": "Relative throughput vs last generation", "data": [{"label": "Last gen", "value": 1}, {"label": "New chip", "value": 4}]}, "diagram_items": [], "source_urls": [], "caption_line_ids": ["line_002"], "emphasis": "urgent"},
+      {"id": "s_points", "start_seconds": 14, "end_seconds": 22, "layout": "bullets", "headline": "Why it matters", "bullets": ["Cheaper inference at scale", "Bigger context windows", "Lower latency for agents"], "diagram_items": [], "source_urls": [], "caption_line_ids": ["line_003"], "emphasis": "technical"},
+      {"id": "s_stat", "start_seconds": 22, "end_seconds": 27, "layout": "chart", "headline": "The headline number", "bullets": [], "chart": {"type": "stat", "title": "", "unit": "x", "caption": "faster inference than last gen", "data": [{"label": "Speedup", "value": 4}]}, "diagram_items": [], "source_urls": [], "caption_line_ids": [], "emphasis": "urgent"},
+      {"id": "s_source", "start_seconds": 27, "end_seconds": 30, "layout": "source", "headline": "Sources", "bullets": [], "diagram_items": [], "source_urls": ["https://nvidia.com", "https://reuters.com"], "caption_line_ids": [], "emphasis": "reflective"}
+    ],
+    "production_notes": []
+  }
+}

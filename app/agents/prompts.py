@@ -442,3 +442,74 @@ def thumbnail_hook_words(text: str) -> list[str]:
             continue
         words.append(word)
     return words
+
+
+def scene_director_prompt(
+    script: Any,
+    claims: Any,
+    line_timings: Any,
+    duration_seconds: float,
+    category: str,
+    fallback_plan: Any,
+) -> str:
+    indexed_claims = [
+        {
+            "claim_index": index,
+            "claim_text": claim.get("claim_text") if isinstance(claim, dict) else str(claim),
+            "source_urls": claim.get("source_urls", []) if isinstance(claim, dict) else [],
+        }
+        for index, claim in enumerate(claims or [])
+    ]
+    return f"""
+You are the Scene Director Agent for Pleopod.
+
+Turn this short single-speaker video into a data-driven presentation plan: an
+ordered list of scenes that a code renderer will draw as animated graphics
+(titles, statements, bullet builds, charts, timelines, quotes, diagrams, and a
+source card). There is NO AI video generation. You only decide what appears on
+screen at each moment.
+
+Video length: {int(duration_seconds)} seconds. Category: {category}.
+
+Scene rules:
+- Cover the whole video from 0 to {int(duration_seconds)} seconds with no gaps or
+  overlaps. The last scene must end exactly at {int(duration_seconds)}.
+- Open with a `title` scene (the hook) and end with a `source` or `outro` scene.
+- Use short, punchy headlines (2-7 words). Never paragraphs.
+- Align each scene to what the speaker is saying at that time. Set
+  `caption_line_ids` to the line ids from lineTimings that fall in the scene.
+- Prefer variety and momentum: change the layout every scene.
+- Allowed layouts: title, statement, bullets, chart, timeline, quote, diagram,
+  source, outro.
+
+Chart rules (critical - this is a fact-checked product):
+- Only use a `chart` layout when the claim bank contains concrete NUMBERS you can
+  show honestly (percentages, counts, money, dates, comparisons).
+- chart.type is one of: bar, line, donut, stat, comparison.
+  - stat: one big number (1 data point). comparison: 2 items. bar/line/donut: 2-8.
+- Every chart must use one comparable unit and scale. NEVER compare unlike
+  metrics (for example dollars versus parameter counts) in the same chart.
+  Use separate stat scenes for unrelated numbers.
+- Every chart data point MUST come from a claim. Set `claim_index` to the claim
+  it came from, and `value` to a number STATED in that claim. Put the unit (%,
+  $B, M, x) in chart.unit, not in the value.
+- NEVER invent, estimate, round hard, or infer numbers that are not in a claim.
+  If the claims have no usable numbers, do NOT use a chart. Use statement,
+  bullets, timeline, quote, or diagram instead.
+- Set source_url on data points when the claim has a source.
+
+Return JSON only, matching the schema. Do not restate lineTimings; they are
+provided and will be reused as-is.
+
+Script:
+{to_pretty_json(script)}
+
+Claim bank (use claim_index to reference these):
+{to_pretty_json(indexed_claims)}
+
+Line timings (ids to reference in caption_line_ids):
+{to_pretty_json(line_timings)}
+
+Deterministic fallback scene draft (improve on this):
+{to_pretty_json(fallback_plan)}
+""".strip()

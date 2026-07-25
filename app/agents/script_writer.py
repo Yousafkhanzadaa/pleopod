@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -21,6 +22,7 @@ _SPEAKER_LINE_RE = re.compile(
 _CANONICAL_TURN_RE = re.compile(
     r"^\s*(?P<speaker>[A-Za-z][\w .'-]{0,64}):\s*(?P<body>.+?)\s*$"
 )
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 _COMPLETE_SENTENCE_END_RE = re.compile(r"""[.!?][\"')\]]*$""")
 _INCOMPLETE_END_WORDS = {
     "a",
@@ -68,11 +70,13 @@ class ScriptWriterAgent(PipelineAgent):
         )
         script = parse_model_json(response.text, PodcastScript)
         script = self._normalize_script(script)
+        script = self._enforce_min_turns(script, job)
         try:
             self._validate_script(script, job)
         except ValueError as exc:
             script = await self._repair_script(context, script, str(exc), job)
             script = self._normalize_script(script)
+            script = self._enforce_min_turns(script, job)
             self._validate_script(script, job)
             script.setdefault("metadata", {})["script_repaired_after_validation_error"] = True
         await context.artifact_service.put_text(
@@ -118,8 +122,47 @@ class ScriptWriterAgent(PipelineAgent):
         )
         return parse_model_json(response.text, PodcastScript)
 
+    def _enforce_min_turns(
+        self, script: dict[str, Any], job: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Re-split a single long speaker line into multiple sentence-level lines.
+
+        Models sometimes emit the whole single-speaker talk as one ``Arman:``
+        line, which fails the minimum-turns check. Splitting on sentence
+        boundaries makes the turn count deterministic and also gives finer
+        caption/segment granularity.
+        """
+        speakers = script.get("speakers") or []
+        if len(speakers) != 1:
+            return script
+        name = str(speakers[0].get("name") or "Arman").strip() or "Arman"
+        turns = canonical_dialogue_turns(str(script.get("transcript") or ""))
+        min_turns = minimum_turn_count(job)
+        if len(turns) >= min_turns:
+            return script
+
+        spoken = " ".join(turn["body"] for turn in turns).strip()
+        sentences = [part.strip() for part in _SENTENCE_SPLIT_RE.split(spoken) if part.strip()]
+        if len(sentences) < 2:
+            return script
+
+        target = max(min_turns, min(len(sentences), 4))
+        per_line = math.ceil(len(sentences) / target)
+        lines = [
+            f"{name}: " + " ".join(sentences[index : index + per_line])
+            for index in range(0, len(sentences), per_line)
+        ]
+        normalized = dict(script)
+        normalized["transcript"] = tts_preamble_for_speakers([name]) + "\n".join(lines)
+        normalized.setdefault("metadata", {})["transcript_resplit_for_turns"] = True
+        return normalized
+
     def _normalize_transcript(self, transcript: str, speakers: list[dict[str, Any]]) -> str:
-        speaker_names = [speaker.get("name") for speaker in speakers if speaker.get("name")]
+        speaker_names = [
+            str(speaker.get("name")).strip()
+            for speaker in speakers
+            if speaker.get("name")
+        ]
         if not speaker_names:
             return transcript
 

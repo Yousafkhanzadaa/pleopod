@@ -110,7 +110,7 @@ class GeminiAIProvider(AIProvider):
         response = await asyncio.to_thread(
             self.client.models.generate_content,
             model=model,
-            contents=[prompt],
+            contents=prompt,
             config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
         )
         parts = list(getattr(response, "parts", None) or [])

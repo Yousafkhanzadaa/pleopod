@@ -15,7 +15,7 @@ from app.db.repositories import (
     TTSSegmentRepository,
 )
 from app.models.enums import ArtifactType, PipelineStep
-from app.providers.ai import AIProvider
+from app.providers.ai import AIProvider, WordAlignmentProvider
 from app.providers.storage import ObjectStorage
 from app.services.artifacts import ArtifactService
 
@@ -44,6 +44,8 @@ class AgentContext:
     storage: ObjectStorage
     ai: AIProvider
     image_ai: AIProvider | None = None
+    voice_ai: AIProvider | None = None
+    alignment_ai: WordAlignmentProvider | None = None
 
     @property
     def artifact_repo(self) -> ArtifactRepository:
@@ -56,6 +58,14 @@ class AgentContext:
     @property
     def thumbnail_ai(self) -> AIProvider:
         return self.image_ai or self.ai
+
+    @property
+    def narration_ai(self) -> AIProvider:
+        return self.voice_ai or self.ai
+
+    @property
+    def word_aligner(self) -> WordAlignmentProvider | None:
+        return self.alignment_ai
 
     @property
     def job_repo(self) -> JobRepository:

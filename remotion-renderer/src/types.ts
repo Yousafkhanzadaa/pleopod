@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {scenePlanSchema} from './scene-plan';
 import {lineTimingSchema, videoPlanSchema} from './video-plan';
 
 export const speakerSchema = z.object({
@@ -13,12 +14,18 @@ export const chapterSchema = z.object({
   startSeconds: z.number().min(0),
 });
 
+export const wordTimingSchema = z.object({
+  word: z.string(),
+  startSeconds: z.number().min(0),
+  endSeconds: z.number().min(0),
+});
+
 export const brandSchema = z.object({
   name: z.string().min(1).default('Pleopod'),
   tagline: z.string().optional(),
-  primaryColor: z.string().default('#22d3ee'),
-  accentColor: z.string().default('#f59e0b'),
-  backgroundColor: z.string().default('#101216'),
+  primaryColor: z.string().default('#5B7CFA'),
+  accentColor: z.string().default('#F4C95D'),
+  backgroundColor: z.string().default('#0B0D10'),
 });
 
 export const videoFormatSchema = z.object({
@@ -46,8 +53,10 @@ export const podcastVideoSchema = z.object({
   speakers: z.array(speakerSchema).min(1).max(2).default([]),
   transcript: z.string().default(''),
   lineTimings: z.array(lineTimingSchema).default([]),
+  wordTimings: z.array(wordTimingSchema).default([]),
   chapters: z.array(chapterSchema).default([]),
   videoPlan: videoPlanSchema.optional(),
+  scenePlan: scenePlanSchema.optional(),
   format: videoFormatSchema.default({
     platform: 'youtube',
     aspectRatio: '16:9',
@@ -59,9 +68,9 @@ export const podcastVideoSchema = z.object({
   brand: brandSchema.default({
     name: 'Pleopod',
     tagline: 'Factual tech podcasts, generated with evidence.',
-    primaryColor: '#22d3ee',
-    accentColor: '#f59e0b',
-    backgroundColor: '#101216',
+    primaryColor: '#5B7CFA',
+    accentColor: '#F4C95D',
+    backgroundColor: '#0B0D10',
   }),
 });
 
@@ -95,6 +104,7 @@ export const defaultPodcastVideoProps: PodcastVideoProps = {
     'Arman: Welcome back. Today we are looking at how an AI podcast pipeline should work.\n' +
     'Maya: The key is simple: research first, verify every important claim, then generate audio.',
   lineTimings: [],
+  wordTimings: [],
   chapters: [
     {title: 'Research', startSeconds: 0},
     {title: 'Verification', startSeconds: 15},
@@ -112,8 +122,8 @@ export const defaultPodcastVideoProps: PodcastVideoProps = {
   brand: {
     name: 'Pleopod',
     tagline: 'Factual tech podcasts, generated with evidence.',
-    primaryColor: '#22d3ee',
-    accentColor: '#f59e0b',
-    backgroundColor: '#101216',
+    primaryColor: '#5B7CFA',
+    accentColor: '#F4C95D',
+    backgroundColor: '#0B0D10',
   },
 };

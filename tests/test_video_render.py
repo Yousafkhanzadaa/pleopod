@@ -365,7 +365,7 @@ def test_local_storage_root_uses_temporary_path_for_temporary_backend(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
+async def test_video_render_agent_renders_presentation_and_completes_job(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -373,12 +373,36 @@ async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
     agent = VideoRenderAgent()
     attached: dict[str, object] = {}
     render_props: dict[str, object] = {}
+    scene_plan = {
+        "version": 1,
+        "director_model": "test",
+        "duration_seconds": 90,
+        "line_timings": [],
+        "scenes": [
+            {"id": "s", "start_seconds": 0, "end_seconds": 90, "layout": "title", "headline": "Hi"}
+        ],
+        "production_notes": [],
+    }
 
-    async def _run_director(self, context, props_path, plan_path) -> None:
+    async def _build_scene_plan(
+        self,
+        context,
+        job,
+        script,
+        audio,
+        *,
+        duration_seconds,
+        reuse_existing=False,
+    ) -> dict:
+        render_props["scene_plan_duration"] = duration_seconds
+        render_props["reuse_existing"] = reuse_existing
+        return scene_plan
+
+    async def _run_render(
+        self, context, props_path, output_path, *, composition="PresentationEpisode"
+    ) -> None:
         render_props.update(json.loads(props_path.read_text(encoding="utf-8")))
-        plan_path.write_text('{"version":1,"durationSeconds":90,"scenes":[]}', encoding="utf-8")
-
-    async def _run_render(self, context, props_path, plan_path, output_path) -> None:
+        render_props["composition"] = composition
         output_path.write_bytes(b"video")
 
     async def _attach_video_asset(self, context, episode_id, video_artifact) -> None:
@@ -389,7 +413,7 @@ async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
     def _local_asset_server(context):
         yield "http://127.0.0.1:51234"
 
-    monkeypatch.setattr(VideoRenderAgent, "_run_director", _run_director)
+    monkeypatch.setattr(VideoRenderAgent, "_build_scene_plan", _build_scene_plan)
     monkeypatch.setattr(VideoRenderAgent, "_run_render", _run_render)
     monkeypatch.setattr(VideoRenderAgent, "_attach_video_asset", _attach_video_asset)
     monkeypatch.setattr(video_render_module, "local_asset_server", _local_asset_server)
@@ -398,6 +422,9 @@ async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
 
     assert result.stop_pipeline is True
     assert result.output_artifact_id == "video_mp4-id"
+    assert render_props["composition"] == "PresentationEpisode"
+    assert render_props["scene_plan_duration"] == 90
+    assert render_props["scenePlan"]["scenes"][0]["layout"] == "title"  # type: ignore[index]
     assert render_props["audioUrl"] == "http://127.0.0.1:51234/jobs/job-1/audio/final.mp3"
     assert (
         render_props["thumbnailUrl"]
@@ -405,8 +432,8 @@ async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
     )
     assert attached["episode_id"] == "episode-1"
     assert (
-        ArtifactType.VIDEO_PAYLOAD_JSON,
-        "jobs/job-1/video/video_payload.json",
+        ArtifactType.SCENE_PLAN_JSON,
+        "jobs/job-1/video/scene_plan.json",
     ) in context.artifact_service.records
     assert (
         ArtifactType.VIDEO_PLAN_JSON,
@@ -421,7 +448,7 @@ async def test_video_render_agent_writes_payload_plan_video_and_completes_job(
 
 
 @pytest.mark.asyncio
-async def test_video_render_agent_uses_static_thumbnail_video_when_remotion_disabled(
+async def test_video_render_agent_uses_motion_caption_video_when_remotion_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -434,24 +461,28 @@ async def test_video_render_agent_uses_static_thumbnail_video_when_remotion_disa
     calls: dict[str, object] = {}
 
     async def _run_director(self, context, props_path, plan_path) -> None:
-        raise AssertionError("Remotion director should not run for static video")
+        raise AssertionError("Remotion director should not run for the ffmpeg renderer")
 
     async def _run_render(self, context, props_path, plan_path, output_path) -> None:
-        raise AssertionError("Remotion render should not run for static video")
+        raise AssertionError("Remotion render should not run for the ffmpeg renderer")
 
-    async def _run_static_video(
+    async def _run_motion_caption_video(
         self,
         context,
+        payload,
         audio,
         thumbnail,
         output_path,
         temp_path,
-        duration_seconds,
-    ) -> None:
-        calls["audio_key"] = audio["r2_key"]
-        calls["thumbnail_key"] = thumbnail["r2_key"]
-        calls["duration_seconds"] = duration_seconds
-        output_path.write_bytes(b"static-video")
+        *,
+        props_path,
+        plan_path,
+    ) -> str:
+        calls["duration_seconds"] = int(payload["durationSeconds"])
+        props_path.write_text("{}", encoding="utf-8")
+        plan_path.write_text('{"renderMode":"motion_caption"}', encoding="utf-8")
+        output_path.write_bytes(b"motion-video")
+        return "motion_caption"
 
     async def _attach_video_asset(self, context, episode_id, video_artifact) -> None:
         calls["attached_episode_id"] = episode_id
@@ -459,23 +490,86 @@ async def test_video_render_agent_uses_static_thumbnail_video_when_remotion_disa
 
     monkeypatch.setattr(VideoRenderAgent, "_run_director", _run_director)
     monkeypatch.setattr(VideoRenderAgent, "_run_render", _run_render)
-    monkeypatch.setattr(VideoRenderAgent, "_run_static_video", _run_static_video)
+    monkeypatch.setattr(VideoRenderAgent, "_run_motion_caption_video", _run_motion_caption_video)
     monkeypatch.setattr(VideoRenderAgent, "_attach_video_asset", _attach_video_asset)
 
     result = await agent.run(_job(), context, {})  # type: ignore[arg-type]
 
     assert result.stop_pipeline is False
     assert result.output_artifact_id == "video_mp4-id"
-    assert calls == {
-        "audio_key": "jobs/job-1/audio/final.mp3",
-        "thumbnail_key": "jobs/job-1/thumbnail/cover.png",
-        "duration_seconds": 90,
-        "attached_episode_id": "episode-1",
-        "attached_render_mode": "static_thumbnail",
-    }
+    assert calls["duration_seconds"] == 90
+    assert calls["attached_render_mode"] == "motion_caption"
+    assert calls["attached_episode_id"] == "episode-1"
     assert (
-        ArtifactType.VIDEO_PLAN_JSON,
-        "jobs/job-1/video/video_plan.json",
+        ArtifactType.VIDEO_MP4,
+        "episodes/episode-1/video/final.mp4",
     ) in context.artifact_service.records
     assert context.job_repo.updated is not None
     assert context.job_repo.updated["metadata"]["video_artifact_id"] == "video_mp4-id"
+
+
+@pytest.mark.asyncio
+async def test_run_motion_caption_video_falls_back_to_static_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context = _Context(tmp_path, enable_video_rendering=False, enable_youtube_uploading=True)
+    context.settings.video_waveform = True
+    context.settings.video_caption_max_words = 3
+    context.settings.video_caption_font_name = "DejaVu Sans"
+    context.settings.video_caption_font_path = None
+    agent = VideoRenderAgent()
+
+    monkeypatch.setattr(video_render_module, "motion_background_supported", lambda: True)
+    monkeypatch.setattr(video_render_module, "captions_supported", lambda: False)
+    monkeypatch.setattr(video_render_module.shutil, "which", lambda command: "/usr/bin/ffmpeg")
+
+    async def _boom(self, context, command) -> None:
+        raise RuntimeError("ffmpeg motion render failed")
+
+    static_calls: dict[str, object] = {}
+
+    async def _run_static_video(
+        self, context, audio, thumbnail, output_path, temp_path, duration_seconds
+    ) -> None:
+        static_calls["duration_seconds"] = duration_seconds
+        output_path.write_bytes(b"static-fallback")
+
+    monkeypatch.setattr(VideoRenderAgent, "_run_ffmpeg_command", _boom)
+    monkeypatch.setattr(VideoRenderAgent, "_run_static_video", _run_static_video)
+
+    payload = {
+        "jobId": "job-1",
+        "title": "AI Pipelines",
+        "durationSeconds": 90,
+        "format": {"width": 1920, "height": 1080, "fps": 30},
+        "brand": {"name": "Pleopod", "accentColor": "#22d3ee"},
+        "lineTimings": [
+            {
+                "id": "l1",
+                "speaker": "Arman",
+                "text": "Welcome to the show",
+                "startSeconds": 0.0,
+                "endSeconds": 2.0,
+            }
+        ],
+    }
+    props_path = tmp_path / "props.json"
+    plan_path = tmp_path / "plan.json"
+    output_path = tmp_path / "final.mp4"
+
+    mode = await agent._run_motion_caption_video(
+        context,  # type: ignore[arg-type]
+        payload,
+        {"r2_key": "jobs/job-1/audio/final.mp3"},
+        {"r2_key": "jobs/job-1/thumbnail/cover.png"},
+        output_path,
+        tmp_path,
+        props_path=props_path,
+        plan_path=plan_path,
+    )
+
+    assert mode == "static_thumbnail"
+    assert static_calls["duration_seconds"] == 90
+    assert output_path.read_bytes() == b"static-fallback"
+    assert json.loads(plan_path.read_text())["renderMode"] == "static_thumbnail"

@@ -36,10 +36,37 @@ class AudioGeneration:
 
 
 @dataclass(frozen=True)
+class WordTiming:
+    word: str
+    start_seconds: float
+    end_seconds: float
+
+
+@dataclass
+class WordAlignment:
+    text: str
+    words: list[WordTiming] = field(default_factory=list)
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class SpeakerVoice:
     speaker: str
     voice_name: str
     style: str | None = None
+
+
+class WordAlignmentProvider(ABC):
+    @abstractmethod
+    async def align_words(
+        self,
+        audio_data: bytes,
+        *,
+        mime_type: str,
+        model: str,
+        language: str | None = None,
+    ) -> WordAlignment:
+        raise NotImplementedError
 
 
 class AIProvider(ABC):

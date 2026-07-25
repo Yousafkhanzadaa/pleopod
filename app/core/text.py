@@ -1,7 +1,26 @@
 import re
 import unicodedata
+from collections.abc import Iterable
 
 _SPEAKER_TURN_RE = re.compile(r"^([A-Za-z][\w .'-]{0,64}):\s*(.*)", re.DOTALL)
+
+
+def strip_speaker_labels(text: str, speaker_names: Iterable[str]) -> str:
+    """Remove known TTS speaker labels, including accidental inline repeats."""
+    names = sorted(
+        {str(name).strip() for name in speaker_names if str(name).strip()},
+        key=len,
+        reverse=True,
+    )
+    if not names:
+        return text.strip()
+    alternation = "|".join(re.escape(name) for name in names)
+    return re.sub(
+        rf"(?<![\w'-])(?:{alternation})\s*:\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
 
 
 def slugify(value: str, max_length: int = 90) -> str:

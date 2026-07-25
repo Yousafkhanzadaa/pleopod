@@ -23,8 +23,13 @@ from app.db.repositories import (
 )
 from app.db.session import dispose_engine, get_sessionmaker, initialize_database
 from app.models.enums import AgentStatus, JobStatus, PipelineStep
-from app.providers.ai import AIProvider
-from app.providers.factory import create_ai_provider, create_thumbnail_image_provider
+from app.providers.ai import AIProvider, WordAlignmentProvider
+from app.providers.factory import (
+    create_ai_provider,
+    create_thumbnail_image_provider,
+    create_voice_provider,
+    create_word_alignment_provider,
+)
 from app.providers.storage import ObjectStorage, create_storage
 from app.worker.pipeline import AGENT_CONTRACTS, AGENTS, next_steps_for_result
 
@@ -37,6 +42,11 @@ class AutopublishRunner:
         self.settings = settings
         self.storage: ObjectStorage = create_storage(settings)
         self.ai: AIProvider = create_ai_provider(settings)
+        self.voice_ai = create_voice_provider(settings, default_provider=self.ai)
+        self.alignment_ai: WordAlignmentProvider | None = create_word_alignment_provider(
+            settings,
+            voice_provider=self.voice_ai,
+        )
         self._thumbnail_image_ai: AIProvider | None = None
         self.sessionmaker = get_sessionmaker(settings)
 
@@ -179,6 +189,8 @@ class AutopublishRunner:
                 storage=self.storage,
                 ai=self.ai,
                 image_ai=self._image_provider_for_step(step),
+                voice_ai=self.voice_ai,
+                alignment_ai=self.alignment_ai,
             )
             try:
                 result = await agent.run(job, context, message)

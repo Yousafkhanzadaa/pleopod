@@ -153,6 +153,18 @@ def test_generation_job_from_decision_builds_autopublish_payload() -> None:
     assert payload.metadata["topic_scout"]["rationale"] == "It is fresh and source-backed."
 
 
+def test_generation_job_from_decision_clamps_overlong_topic() -> None:
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    long_topic = "Beijing lab ships a distilled frontier model this week " * 15
+
+    payload = generation_job_from_decision(
+        {"topic": long_topic, "title": "Distilled model ships", "source_urls": []},
+        settings,
+    )
+
+    assert 3 <= len(payload.topic) <= 300
+
+
 def test_generation_job_from_decision_counts_source_quality_urls() -> None:
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,

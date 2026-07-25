@@ -5,10 +5,10 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
-from pydantic import ValidationError
+from pydantic import HttpUrl, ValidationError
 
 from app.core.config import Settings
 from app.core.duration import clamp_generation_duration_seconds
@@ -462,6 +462,18 @@ def select_publishable_decision(
     return decision
 
 
+def clamp_text(value: str, max_len: int) -> str:
+    """Truncate untrusted model text to a field limit, at a word boundary."""
+    value = value.strip()
+    if len(value) <= max_len:
+        return value
+    truncated = value[:max_len].rstrip()
+    boundary = truncated.rfind(" ")
+    if boundary > max_len // 2:
+        truncated = truncated[:boundary]
+    return truncated.rstrip(" ,.;:-")
+
+
 def generation_job_from_decision(
     decision: dict[str, Any],
     settings: Settings,
@@ -481,16 +493,16 @@ def generation_job_from_decision(
     )
 
     return GenerationJobCreate(
-        topic=str(decision.get("topic") or decision.get("title") or "").strip(),
-        category=str(decision.get("category") or settings.autopublish_category),
-        audience=str(decision.get("audience") or settings.autopublish_audience),
+        topic=clamp_text(str(decision.get("topic") or decision.get("title") or ""), 300),
+        category=clamp_text(str(decision.get("category") or settings.autopublish_category), 80),
+        audience=clamp_text(str(decision.get("audience") or settings.autopublish_audience), 200),
         target_duration_seconds=clamp_generation_duration_seconds(
             decision.get("target_duration_seconds")
             or settings.autopublish_target_duration_seconds
         ),
-        language=str(decision.get("language") or settings.autopublish_language),
-        tone=str(decision.get("tone") or settings.autopublish_tone),
-        source_urls=source_urls,
+        language=clamp_text(str(decision.get("language") or settings.autopublish_language), 16),
+        tone=clamp_text(str(decision.get("tone") or settings.autopublish_tone), 200),
+        source_urls=cast(list[HttpUrl], source_urls),
         auto_publish=True,
         metadata={
             "autopublish": True,
@@ -802,7 +814,7 @@ def recent_topic_records(
         title = str(scout.get("title") or "").strip()
         if not topic and not title:
             continue
-        record = {
+        record: dict[str, Any] = {
             "topic": topic,
             "title": title,
             "status": str(job.get("status") or ""),

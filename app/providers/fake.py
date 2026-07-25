@@ -150,6 +150,66 @@ class FakeAIProvider(AIProvider):
                 ],
             }
             return TextGeneration(text=json.dumps(research_data))
+        if schema_name == "ScenePlan" or "scene director agent" in lower:
+            scene_plan_data: dict[str, Any] = {
+                "version": 1,
+                "director_model": "fake",
+                "duration_seconds": 90,
+                "line_timings": [],
+                "scenes": [
+                    {
+                        "id": "scene_title",
+                        "start_seconds": 0,
+                        "end_seconds": 6,
+                        "layout": "title",
+                        "headline": "The AI Media Pipeline",
+                        "subheadline": "Research, verify, then generate",
+                        "emphasis": "curious",
+                    },
+                    {
+                        "id": "scene_statement",
+                        "start_seconds": 6,
+                        "end_seconds": 34,
+                        "layout": "statement",
+                        "headline": "Research first, verify every claim",
+                        "emphasis": "technical",
+                    },
+                    {
+                        "id": "scene_bullets",
+                        "start_seconds": 34,
+                        "end_seconds": 64,
+                        "layout": "bullets",
+                        "headline": "How the spine works",
+                        "bullets": [
+                            "Each stage leaves an artifact",
+                            "Facts stabilize before audio",
+                            "The worker connects the pieces",
+                        ],
+                    },
+                    {
+                        "id": "scene_source",
+                        "start_seconds": 64,
+                        "end_seconds": 84,
+                        "layout": "source",
+                        "headline": "Sources",
+                        "source_urls": [
+                            "https://example.com/source-1",
+                            "https://example.com/source-2",
+                        ],
+                        "emphasis": "reflective",
+                    },
+                    {
+                        "id": "scene_outro",
+                        "start_seconds": 84,
+                        "end_seconds": 90,
+                        "layout": "outro",
+                        "headline": "Tighter output, better control",
+                        "emphasis": "reflective",
+                    },
+                ],
+                "production_notes": ["Fake local scene plan."],
+            }
+            return TextGeneration(text=json.dumps(scene_plan_data))
         return TextGeneration(text=json.dumps({"result": "ok"}))
 
     async def generate_image(self, prompt: str, model: str) -> ImageGeneration:

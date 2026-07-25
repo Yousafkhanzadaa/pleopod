@@ -3,6 +3,7 @@ from app.agents.audio_config import (
     GEMINI_TTS_SAFE_SOURCE_CHARS,
     build_tts_config,
     build_tts_prompt,
+    narration_text,
     normalize_tts_transcript,
     source_transcript_from_tts_prompt,
     tts_config_needs_rebuild,
@@ -144,3 +145,38 @@ def test_build_tts_config_can_use_single_request_mode_when_explicit() -> None:
     assert config["generation_mode"] == "single_request"
     assert config["max_source_chunk_chars"] == len(script["transcript"])
     assert len(config["chunks"]) == 1
+
+
+def test_build_tts_config_uses_direct_openai_narration_text() -> None:
+    script = {
+        "speakers": [{"name": "Arman", "voice_name": "Algenib"}],
+        "transcript": "Arman: Welcome back.\nArman: Here is the story.",
+    }
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        ai_provider="gemini",
+        gemini_api_key="gemini-key",
+        openai_api_key="openai-key",
+        voice_provider="openai",
+    )
+
+    config = build_tts_config(script, settings)
+
+    assert config["voice_provider"] == "openai"
+    assert config["tts_model"] == "gpt-4o-mini-tts"
+    assert config["speakers"][0]["voice_name"] == "onyx"
+    assert config["chunks"][0]["transcript"] == "Welcome back.\nHere is the story."
+    assert "Arman:" not in config["chunks"][0]["transcript"]
+
+
+def test_narration_text_strips_single_speaker_labels_only() -> None:
+    assert narration_text("Arman: First line. Arman: Still first.\nArman: Second line.") == (
+        "First line. Still first.\nSecond line."
+    )
+
+
+def test_narration_text_uses_known_speaker_for_unprefixed_inline_label() -> None:
+    assert (
+        narration_text("First line. Arman: Second line.", ["Arman"])
+        == "First line. Second line."
+    )

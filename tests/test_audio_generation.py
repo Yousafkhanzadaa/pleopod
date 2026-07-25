@@ -4,12 +4,14 @@ import pytest
 
 from app.agents.audio_generation import (
     AudioGenerationAgent,
+    canonical_word_timings,
+    line_timings_from_word_alignment,
     tts_config_fingerprint,
     tts_segment_fingerprint,
 )
 from app.agents.publisher import duration_seconds_from_artifact
 from app.models.enums import ArtifactType
-from app.providers.ai import AudioGeneration
+from app.providers.ai import AudioGeneration, WordAlignment, WordTiming
 
 
 class _ArtifactRepo:
@@ -74,10 +76,78 @@ async def test_audio_generation_regenerates_stale_final_and_changed_segment() ->
     )
 
 
+@pytest.mark.asyncio
+async def test_audio_generation_stores_measured_word_and_line_timings() -> None:
+    config = _config("Arman: Current line.")
+    context = _AlignedGenerationContext(config)
+
+    await AudioGenerationAgent().run(
+        {"id": "job-1", "language": "en"},
+        context,
+        {},
+    )
+
+    metadata = context.artifact_service.final_metadata
+    assert metadata["word_timings"] == [
+        {"word": "Current", "start_seconds": 0.05, "end_seconds": 0.18},
+        {"word": "line.", "start_seconds": 0.19, "end_seconds": 0.31},
+    ]
+    assert metadata["line_timings"][0]["start_seconds"] == 0.05
+    assert metadata["line_timings"][0]["end_seconds"] == 0.31
+    assert context.aligner.calls[0]["model"] == "whisper-1"
+
+
 def test_publisher_duration_seconds_uses_audio_artifact_metadata() -> None:
     assert duration_seconds_from_artifact({"metadata": {"duration_seconds": 64.4}}) == 64
     assert duration_seconds_from_artifact({"metadata": {"duration_seconds": 64.6}}) == 65
     assert duration_seconds_from_artifact({"metadata": {}}) is None
+
+
+def test_line_timings_from_word_alignment_maps_script_lines() -> None:
+    words = [
+        WordTiming("First", 0.1, 0.3),
+        WordTiming("idea", 0.31, 0.55),
+        WordTiming("Second", 0.8, 1.0),
+        WordTiming("point", 1.01, 1.25),
+    ]
+
+    timings = line_timings_from_word_alignment(
+        "Arman: First idea.\nArman: Second point.",
+        words,
+    )
+
+    assert [(item["start_seconds"], item["end_seconds"]) for item in timings] == [
+        (0.1, 0.55),
+        (0.8, 1.25),
+    ]
+
+
+def test_canonical_word_timings_restores_verified_spelling_and_numbers() -> None:
+    aligned = [
+        WordTiming("by", 0.2, 0.4),
+        WordTiming("Anthropx", 0.4, 0.8),
+        WordTiming("2", 0.9, 1.05),
+        WordTiming("8", 1.05, 1.2),
+        WordTiming("model", 1.25, 1.6),
+    ]
+
+    words = canonical_word_timings(
+        "Arman: driven by Anthropic's 2.8 model.",
+        aligned,
+    )
+
+    assert [word.word for word in words] == [
+        "driven",
+        "by",
+        "Anthropic's",
+        "2.8",
+        "model.",
+    ]
+    assert all(word.end_seconds > word.start_seconds for word in words)
+    assert all(
+        earlier.end_seconds <= later.start_seconds
+        for earlier, later in zip(words, words[1:], strict=False)
+    )
 
 
 def _config(source_transcript: str) -> dict:
@@ -116,6 +186,15 @@ class _GenerationContext(_Context):
         self.artifact_service = _ArtifactService()
 
 
+class _AlignedGenerationContext(_GenerationContext):
+    def __init__(self, config: dict) -> None:
+        super().__init__(config)
+        self.settings.enable_word_alignment = True
+        self.settings.alignment_model = "whisper-1"
+        self.aligner = _Aligner()
+        self.word_aligner = self.aligner
+
+
 class _AI:
     def __init__(self) -> None:
         self.prompts: list[str] = []
@@ -123,6 +202,35 @@ class _AI:
     async def generate_tts(self, prompt: str, model: str, speakers: list) -> AudioGeneration:
         self.prompts.append(prompt)
         return AudioGeneration(pcm_data=b"\0" * 4800, sample_rate=24000, channels=1, sample_width=2)
+
+
+class _Aligner:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def align_words(
+        self,
+        audio_data: bytes,
+        *,
+        mime_type: str,
+        model: str,
+        language: str | None = None,
+    ) -> WordAlignment:
+        self.calls.append(
+            {
+                "audio_data": audio_data,
+                "mime_type": mime_type,
+                "model": model,
+                "language": language,
+            }
+        )
+        return WordAlignment(
+            text="Current line.",
+            words=[
+                WordTiming("Current", 0.05, 0.18),
+                WordTiming("line", 0.19, 0.31),
+            ],
+        )
 
 
 class _Storage:

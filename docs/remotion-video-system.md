@@ -1,9 +1,10 @@
 # Remotion Video System
 
-Reviewed: April 24, 2026.
+Reviewed: July 25, 2026.
 
-Pleopod can add video generation as a separate execution-plane system without
-changing the core podcast generation flow.
+Pleopod renders professional short-form motion graphics after the audio pipeline.
+The renderer is deterministic: AI chooses structured content and timing, while
+Remotion draws the final frames.
 
 ## Why Separate
 
@@ -15,20 +16,17 @@ Keeping video rendering separate preserves the current architecture:
 - Video rendering can scale separately because it is CPU, Chromium, and FFmpeg heavy.
 - Failures in video rendering do not block audio publishing.
 
-## Proposed Flow
+## Current Flow
 
 ```text
-Publisher Agent
-  -> writes episode metadata and audio assets
-  -> writes video_payload.json artifact
+Audio Generation Agent
+  -> writes final audio with aligned word and line timings
 
-Video Director Agent
-  -> reads video_payload.json, verified transcript, and optional timing data
-  -> calls Gemini 2.5 Flash
-  -> writes video_plan.json
-
-Remotion Renderer Worker
-  -> loads video_payload.json and video_plan.json
+Video Render Agent
+  -> writes video_payload.json
+  -> asks the Scene Director for scene_plan.json
+  -> grounds every chart number against the verified claim bank
+  -> renders PresentationEpisode with Remotion
   -> renders MP4 with remotion-renderer
   -> uploads video to R2
   -> records video artifact / episode asset
@@ -53,67 +51,74 @@ The Remotion renderer needs only public or signed asset URLs plus episode metada
 - speakers
 - chapters
 - brand colors
-- optional `video_plan.json` from Gemini
+- exact word timings when alignment succeeds
+- a grounded `scene_plan.json`
 
 It should not need direct database access.
 
 ## Video Director Agent
 
-Gemini 2.5 Flash should decide content, not render video. The agent returns strict
-JSON with:
+Gemini decides content, not pixels. The backend Scene Director returns strict JSON
+with:
 
 - line timings
+- word timings
 - scene start and end times
-- Remotion layout names
-- headlines, bullets, diagrams, quote cards, source cards, and caption line ids
+- known layout names
+- headlines, bullets, charts, diagrams, quotes, sources, and caption line ids
 
 The renderer accepts only known layouts:
 
 ```text
-episode_intro
-chapter_card
-speaker_focus
-concept_card
-bullet_card
-source_card
+title
+statement
+bullets
+chart
 timeline
-quote_card
-diagram_card
-thumbnail_focus
-closing_card
+quote
+diagram
+source
+outro
 ```
 
-This keeps the creative decision-making flexible while keeping the video output
-deterministic, brand-safe, and retryable.
+Chart data passes a second backend gate. Ungrounded values are removed, and
+multi-value charts without a shared unit become separate fact bullets rather than
+a misleading visual comparison.
 
-## Recommended First Implementation
+## Render Contract
 
-1. Keep `remotion-renderer/` as a standalone package.
-2. The backend `VideoRenderAgent` writes:
+The backend writes:
 
 ```text
 jobs/{job_id}/video/video_payload.json
-```
-
-3. The renderer director step writes:
-
-```text
-jobs/{job_id}/video/video_plan.json
-```
-
-4. The renderer worker accepts:
-
-```bash
-npm run render -- --props payload.json --plan video_plan.json --out final.mp4
-```
-
-5. Upload the result to:
-
-```text
+jobs/{job_id}/video/scene_plan.json
 episodes/{episode_id}/video/final.mp4
 ```
 
-6. Record an `episode_assets` row with `asset_type='video'`.
+The standalone CLI accepts both artifacts. It also serves exact `file://` media
+inputs through a temporary loopback-only endpoint for local renders:
+
+```bash
+npm run render -- \
+  --props video_payload.json \
+  --scene-plan scene_plan.json \
+  --composition PresentationEpisode \
+  --out final.mp4
+```
+
+## Visual System
+
+The `PresentationEpisode` composition uses:
+
+- solid, flat color fields only—no gradients
+- kinetic word entrances and hard-edged wipe transitions
+- direct-to-canvas SVG charts with grounded values
+- continuous but restrained geometric motion
+- exact word-synchronized captions when alignment is present
+- line-timing estimation as a resilient fallback
+
+The palette and typography are deliberately high-contrast and editorial rather
+than glassy, glossy, or template-like.
 
 ## Local Setup
 
@@ -132,9 +137,8 @@ REMOTION_RENDERER_PATH=remotion-renderer
 REMOTION_VIDEO_DIRECTOR_MODEL=gemini-2.5-flash-lite
 ```
 
-If `GEMINI_API_KEY` is present, the director step uses Gemini. If no Gemini key is
-present, the backend calls the renderer's deterministic fallback director so local
-fake-mode tests can still complete.
+If no Gemini key is present, the backend uses a deterministic text-only fallback
+plan so local fake-mode tests can still complete.
 
 ## Scaling Path
 
@@ -143,11 +147,12 @@ Lambda if rendering volume grows or videos become long. Cloud Run exists in the
 Remotion ecosystem, but current official docs mark it experimental/alpha, so it
 should not be the first production choice.
 
-## Caption Caveat
+## Narration And Caption Timing
 
-The current transcript is dialogue text, not word-timed captions. The director can
-make approximate line timings immediately. For true captions, add one of:
+`VOICE_PROVIDER=openai` uses `gpt-4o-mini-tts` for directed documentary
+narration. With `ENABLE_WORD_ALIGNMENT=true`, the finished WAV is transcribed by
+`whisper-1` using word timestamp granularity. The final-audio artifact stores the
+aligned transcript, individual word spans, and word-derived line spans.
 
-- TTS word timing if the provider exposes it
-- post-generation transcription
-- manual segment timestamps derived during audio chunking
+Alignment is best-effort. If it is unavailable, rendering continues with measured
+audio-segment timings and estimated per-word spans.

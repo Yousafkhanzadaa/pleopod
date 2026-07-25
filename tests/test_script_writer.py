@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.agents.script_writer import ScriptWriterAgent
+from app.agents.script_writer import ScriptWriterAgent, canonical_dialogue_turns
 from app.models.enums import ArtifactType
 
 
@@ -225,3 +225,21 @@ async def test_script_writer_repairs_truncated_final_line() -> None:
     assert result.output_artifact_id == "json-artifact-id"
     assert len(context.ai.calls) == 2
     assert "final spoken line is not a complete sentence" in context.ai.calls[1]
+
+
+def test_enforce_min_turns_resplits_single_line() -> None:
+    agent = ScriptWriterAgent()
+    script = {
+        "speakers": [{"name": "Arman"}],
+        "transcript": (
+            "TTS the following talk by Arman:\n\n"
+            "Arman: First point here. Second point follows. Third wraps it up."
+        ),
+    }
+
+    out = agent._enforce_min_turns(script, {"target_duration_seconds": 60})
+
+    turns = canonical_dialogue_turns(out["transcript"])
+    assert len(turns) >= 2
+    assert all(turn["speaker"] == "Arman" for turn in turns)
+    assert out["metadata"]["transcript_resplit_for_turns"] is True

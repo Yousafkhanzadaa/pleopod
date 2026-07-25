@@ -277,9 +277,11 @@ REMOTION_VIDEO_DIRECTOR_MODEL=gemini-2.5-flash-lite
 REMOTION_RENDER_TIMEOUT_SECONDS=1800
 ```
 
-Gemini can create a structured `video_plan.json`, but Remotion renders the video
-deterministically. Without `GEMINI_API_KEY`, the renderer can use a local fallback
-plan for development.
+The backend Scene Director creates a grounded `scene_plan.json`, but Remotion
+renders every frame deterministically. The `PresentationEpisode` composition uses
+modern flat-color kinetic typography, charts, hard-edged transitions, and
+word-synchronized captions—no gradients. Without `GEMINI_API_KEY`, it uses a
+deterministic fallback plan for development.
 
 See `docs/remotion-video-system.md` and `remotion-renderer/README.md`.
 

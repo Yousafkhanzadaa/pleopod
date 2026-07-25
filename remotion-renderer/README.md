@@ -1,25 +1,28 @@
 # Pleopod Remotion Renderer
 
-Independent Remotion system for turning a generated Pleopod podcast episode into
-a branded video asset.
+Independent Remotion system for turning a generated Pleopod episode into a
+professional short-form motion-graphics video.
 
 This package is intentionally separate from the Python backend. The backend should
 finish the podcast pipeline, write a small JSON payload, then invoke this renderer
 or send the payload to a separate rendering worker.
 
-The video is rendered entirely by Remotion. Gemini is used only as a Video Director
-Agent that writes a structured `video_plan.json`.
+The video is rendered entirely by Remotion. The backend Scene Director writes a
+grounded, engine-independent `scene_plan.json`; AI never draws frames.
 
 ## What It Renders
 
-- 1920x1080 MP4 podcast video
-- episode title, summary, category, duration, and current chapter
-- thumbnail or generated cover placeholder
-- speaker cards
-- AI-directed scene layouts based on `video_plan.json`
-- transcript or timing-driven caption card
-- deterministic waveform/progress visuals
-- optional final podcast audio
+- 1920x1080, 30fps H.264/AAC MP4
+- modern editorial motion graphics using solid colors only
+- kinetic headlines and hard-edged wipe transitions
+- grounded bar, line, donut, comparison, and stat visuals
+- bullet, statement, timeline, quote, diagram, source, and outro scenes
+- word-synchronized kinetic captions, with line-timing fallback
+- restrained continuous geometry and a deterministic progress indicator
+- final narration audio
+
+The `PresentationEpisode` source contains no CSS or SVG gradients. The palette is
+made from plain, high-contrast fills.
 
 ## Install
 
@@ -39,15 +42,15 @@ npm run studio
 ```bash
 npm run render:sample
 npm run render:sample:planned
+npm run render:presentation
 ```
 
 The sample payload has no audio file, so it renders a silent video. To render a real
 episode, provide `audioUrl` and usually `thumbnailUrl` in the payload.
 
-## Generate A Video Plan
+## Legacy Video Plan
 
-Gemini 2.5 Flash-Lite can direct the on-screen content by producing a validated
-`video_plan.json`:
+`PodcastEpisode` still supports the older camel-case `video_plan.json` contract:
 
 ```bash
 GEMINI_API_KEY=... npm run plan -- \
@@ -67,9 +70,15 @@ npm run plan:fallback
 ```bash
 npm run render -- \
   --props ./payloads/my-episode.json \
-  --plan ./payloads/my-episode.video-plan.json \
+  --scene-plan ./payloads/my-episode.scene-plan.json \
+  --sources ./payloads/my-episode.sources.json \
+  --composition PresentationEpisode \
   --out ./out/my-episode.mp4
 ```
+
+`audioUrl` and `thumbnailUrl` may be HTTPS URLs or local `file://` URLs. For local
+files the CLI exposes only those exact assets through a temporary loopback server
+for the duration of the render.
 
 ## Payload Contract
 
@@ -91,6 +100,9 @@ The renderer consumes JSON validated by `src/types.ts`.
     {"name": "Arman", "role": "Host", "voiceName": "Charon"},
     {"name": "Maya", "role": "Analyst", "voiceName": "Aoede"}
   ],
+  "wordTimings": [
+    {"word": "Welcome", "startSeconds": 0.2, "endSeconds": 0.63}
+  ],
   "transcript": "Arman: Welcome back...\nMaya: Let's unpack it...",
   "chapters": [
     {"title": "Intro", "startSeconds": 0}
@@ -98,78 +110,80 @@ The renderer consumes JSON validated by `src/types.ts`.
   "brand": {
     "name": "Pleopod",
     "tagline": "Factual tech podcasts, generated with evidence.",
-    "primaryColor": "#22d3ee",
-    "accentColor": "#f59e0b",
-    "backgroundColor": "#101216"
+    "primaryColor": "#5B7CFA",
+    "accentColor": "#F4C95D",
+    "backgroundColor": "#0B0D10"
   }
 }
 ```
 
-## Video Plan Contract
+## Scene Plan Contract
 
-The director plan is validated by `src/video-plan.ts`. Gemini should return JSON,
-not code.
+The presentation plan is snake-case JSON validated by `src/scene-plan.ts`, matching
+`app/schemas/video_plan.py` directly.
 
 ```json
 {
   "version": 1,
-  "directorModel": "gemini-2.5-flash-lite",
-  "durationSeconds": 600,
-  "lineTimings": [
+  "director_model": "gemini-2.5-flash-lite",
+  "duration_seconds": 60,
+  "line_timings": [
     {
       "id": "line_001",
       "speaker": "Arman",
       "text": "Welcome back...",
-      "startSeconds": 0,
-      "endSeconds": 5.4
+      "start_seconds": 0,
+      "end_seconds": 5.4
     }
+  ],
+  "word_timings": [
+    {"word": "Welcome", "start_seconds": 0.2, "end_seconds": 0.63}
   ],
   "scenes": [
     {
       "id": "scene_001",
-      "startSeconds": 0,
-      "endSeconds": 18,
-      "layout": "episode_intro",
+      "start_seconds": 0,
+      "end_seconds": 18,
+      "layout": "title",
       "headline": "The AI Podcast Pipeline",
-      "captionLineIds": ["line_001"],
+      "caption_line_ids": ["line_001"],
       "bullets": [],
-      "diagramItems": [],
-      "sourceUrls": [],
-      "visualKeywords": ["pipeline", "audio"],
+      "diagram_items": [],
+      "source_urls": [],
       "emphasis": "calm"
     }
   ],
-  "productionNotes": []
+  "production_notes": []
 }
 ```
 
 Allowed layouts:
 
 ```text
-episode_intro
-chapter_card
-speaker_focus
-concept_card
-bullet_card
-source_card
+title
+statement
+bullets
+chart
 timeline
-quote_card
-diagram_card
-thumbnail_focus
-closing_card
+quote
+diagram
+source
+outro
 ```
+
+Every non-stat multi-value chart must declare one shared `unit`. The backend
+grounds values against the verified claim bank. The renderer also downgrades
+older unitless multi-value charts to separate facts rather than placing unlike
+metrics on one scale.
 
 ## Integration Notes
 
-The Python backend should not import this package directly. Use one of these
-handoff patterns:
-
-1. Write `video_payload.json` as a job artifact.
-2. Run the director step to write `video_plan.json`.
-3. Enqueue a `video_render_queue` message.
-4. Run a separate Node worker that reads the payload and plan, renders MP4, uploads to R2,
-   and records `video_mp4` / `social_clip_mp4` artifacts.
-5. Later, swap local server-side rendering for Remotion Lambda if volume grows.
+1. The Python worker writes `video_payload.json` and grounded `scene_plan.json`.
+2. The render payload embeds the scene plan and asset URLs.
+3. The worker invokes `PresentationEpisode`, uploads the MP4, and records the
+   `video_mp4` artifact.
+4. Rendering can later move to a dedicated worker without changing either JSON
+   contract.
 
 ## License Reminder
 

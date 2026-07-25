@@ -10,6 +10,7 @@
     "plan:fallback": "tsx src/director.ts --fallback --props ./sample-payload.json --out ./out/fallback-video-plan.json",
     "render": "tsx src/render.ts",
     "render:sample": "tsx src/render.ts --props ./sample-payload.json --out ./out/sample.mp4",
+    "render:presentation": "tsx src/render.ts --props ./sample-presentation-payload.json --composition PresentationEpisode --out ./out/presentation-sample.mp4",
     "render:sample:planned": "tsx src/render.ts --props ./sample-payload.json --plan ./sample-video-plan.json --out ./out/sample-planned.mp4",
     "render:sample:cli": "remotion render src/index.ts PodcastEpisode ./out/sample.mp4 --props=./sample-payload.json",
     "typecheck": "tsc --noEmit"
@@ -18,7 +19,9 @@
     "@google/genai": "^1.0.0",
     "@remotion/bundler": "^4.0.0",
     "@remotion/cli": "^4.0.0",
+    "@remotion/google-fonts": "^4.0.459",
     "@remotion/renderer": "^4.0.0",
+    "@remotion/transitions": "^4.0.459",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "remotion": "^4.0.0",

@@ -15,7 +15,12 @@ from app.db.queue import QueueRepository
 from app.db.repositories import ArtifactRepository, JobRepository
 from app.db.session import dispose_engine, get_sessionmaker, initialize_database
 from app.models.enums import AgentStatus, PipelineStep
-from app.providers.factory import create_ai_provider, create_thumbnail_image_provider
+from app.providers.factory import (
+    create_ai_provider,
+    create_thumbnail_image_provider,
+    create_voice_provider,
+    create_word_alignment_provider,
+)
 from app.providers.storage import create_storage
 from app.worker.pipeline import AGENT_CONTRACTS, AGENTS, STEP_TO_QUEUE, next_steps_for_result
 
@@ -141,6 +146,8 @@ async def run_stage(
     sessionmaker = get_sessionmaker(settings)
     storage = create_storage(settings)
     ai = create_ai_provider(settings)
+    voice_ai = create_voice_provider(settings, default_provider=ai)
+    alignment_ai = create_word_alignment_provider(settings, voice_provider=voice_ai)
     image_ai = (
         create_thumbnail_image_provider(settings, default_provider=ai)
         if step == PipelineStep.THUMBNAIL
@@ -178,6 +185,8 @@ async def run_stage(
             storage=storage,
             ai=ai,
             image_ai=image_ai,
+            voice_ai=voice_ai,
+            alignment_ai=alignment_ai,
         )
         try:
             result = await agent.run(job, context, message)

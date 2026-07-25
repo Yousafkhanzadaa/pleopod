@@ -66,6 +66,25 @@ class Settings(BaseSettings):
     openai_image_quality: Literal["low", "medium", "high", "auto"] = "medium"
     openai_image_output_format: Literal["png", "jpeg", "webp"] = "png"
 
+    # Professional narration voice. "auto" uses OpenAI gpt-4o-mini-tts when an
+    # OpenAI key is present (documentary-grade, directable delivery), falling
+    # back to Gemini TTS, and to the fake tone in fake mode.
+    voice_provider: Literal["auto", "openai", "gemini", "fake"] = "auto"
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "onyx"
+    openai_tts_instructions: str = (
+        "You are a professional documentary narrator. Deliver the line with a calm, "
+        "confident, authoritative tone; warm but serious; clear diction; natural "
+        "pacing with subtle emphasis on key facts. Do not rush. No theatrics."
+    )
+    openai_tts_speed: float = 1.0
+
+    # Word-level caption alignment. Transcribes the final audio to get real
+    # per-word timings so captions land exactly on the spoken word instead of
+    # being estimated. Best-effort: falls back to estimated timings on failure.
+    enable_word_alignment: bool = True
+    alignment_model: str = "whisper-1"
+
     default_category: str = "Tech"
     require_human_approval: bool = False
     max_agent_attempts: int = 3
@@ -76,6 +95,16 @@ class Settings(BaseSettings):
     worker_sleep_seconds: float = 1.0
     tts_generation_mode: Literal["single_request", "chunked"] = "chunked"
     max_tts_chunk_chars: int = 1200
+
+    # Default ffmpeg motion-caption renderer, used when ENABLE_VIDEO_RENDERING=false.
+    # It burns animated captions over a Ken Burns background with a waveform and
+    # progress bar. It needs only ffmpeg (no headless browser), so it is safe and
+    # cheap on small hosts. Caption text needs an ffmpeg built with libass, which
+    # the Docker image provides via fonts-dejavu-core.
+    video_waveform: bool = True
+    video_caption_font_name: str = "DejaVu Sans"
+    video_caption_font_path: Path | None = None
+    video_caption_max_words: int = 3
 
     autopublish_topic_model: str = LOW_COST_GEMINI_TEXT_MODEL
     autopublish_category: str = "Tech"
@@ -191,6 +220,16 @@ class Settings(BaseSettings):
         return "openai"
 
     @property
+    def resolved_voice_provider(self) -> Literal["fake", "gemini", "openai"]:
+        if self.voice_provider != "auto":
+            return self.voice_provider
+        if self.ai_provider == "fake":
+            return "fake"
+        if self.openai_api_key:
+            return "openai"
+        return "gemini"
+
+    @property
     def resolved_thumbnail_image_model(self) -> str:
         provider = self.resolved_thumbnail_image_provider
         if provider == "openai":
@@ -218,6 +257,12 @@ class Settings(BaseSettings):
     def validate_ai(self) -> None:
         if self.ai_provider == "gemini" and not self.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY is required when AI_PROVIDER=gemini")
+
+    def validate_voice(self) -> None:
+        if self.resolved_voice_provider == "openai" and not self.openai_api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is required when the voice provider resolves to openai"
+            )
 
     def validate_thumbnail_image(self) -> None:
         provider = self.resolved_thumbnail_image_provider

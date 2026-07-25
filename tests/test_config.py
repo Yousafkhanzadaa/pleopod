@@ -81,6 +81,20 @@ def test_thumbnail_image_requires_openai_key_when_resolved_to_openai() -> None:
         settings.validate_thumbnail_image()
 
 
+def test_voice_auto_uses_openai_and_alignment_when_key_is_available() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        ai_provider="gemini",
+        gemini_api_key="gemini-key",
+        openai_api_key="openai-key",
+    )
+
+    assert settings.resolved_voice_provider == "openai"
+    assert settings.openai_tts_model == "gpt-4o-mini-tts"
+    assert settings.enable_word_alignment is True
+    settings.validate_voice()
+
+
 def test_default_runtime_is_local_first() -> None:
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
 

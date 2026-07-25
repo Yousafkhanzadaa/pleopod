@@ -35,6 +35,7 @@ dev = [
 [project.scripts]
 pleopod-api = "app.serve:main"
 pleopod-autopublish = "app.worker.autopublish:main"
+pleopod-scene-plan = "app.worker.scene_plan_runner:main"
 pleopod-stage = "app.worker.stage_runner:main"
 pleopod-worker = "app.worker.runner:main"
 
