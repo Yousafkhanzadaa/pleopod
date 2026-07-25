@@ -12,8 +12,31 @@ LOW_COST_GEMINI_TEXT_MODEL = "gemini-2.5-flash-lite"
 LOW_COST_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 LOW_COST_IMAGE_MODEL = "imagen-4.0-fast-generate-001"
 OPENAI_IMAGE_MODEL = "gpt-image-2"
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SQLITE_ASYNC_PREFIX = "sqlite+aiosqlite:///"
+
+
+def discover_project_root(
+    *,
+    cwd: Path | None = None,
+    module_path: Path | None = None,
+) -> Path:
+    """Find source assets when the Python package is installed into site-packages."""
+    working_directory = (cwd or Path.cwd()).resolve()
+    package_file = (module_path or Path(__file__)).resolve()
+
+    for candidate in (working_directory, *working_directory.parents):
+        if (candidate / "pyproject.toml").is_file():
+            return candidate
+
+    package_directory = package_file.parent
+    for candidate in (package_directory, *package_directory.parents):
+        if (candidate / "pyproject.toml").is_file():
+            return candidate
+
+    return package_file.parents[2]
+
+
+PROJECT_ROOT = discover_project_root()
 
 
 class Settings(BaseSettings):
@@ -327,7 +350,7 @@ def resolve_project_path(path: Path) -> Path:
     expanded = path.expanduser()
     if expanded.is_absolute():
         return expanded
-    return PROJECT_ROOT / expanded
+    return discover_project_root() / expanded
 
 
 def resolve_sqlite_database_url(database_url: str) -> str:

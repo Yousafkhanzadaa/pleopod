@@ -1,7 +1,9 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    REMOTION_RENDERER_PATH=/app/remotion-renderer \
+    YOUTUBE_UPLOADER_PATH=/app/youtube-uploader
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.config import PROJECT_ROOT, Settings
+from app.core.config import PROJECT_ROOT, Settings, discover_project_root
 
 
 def test_default_gemini_models_use_low_cost_development_profile(
@@ -127,6 +127,25 @@ def test_relative_runtime_paths_resolve_from_project_root() -> None:
     assert settings.temporary_storage_path == PROJECT_ROOT / "tmp-artifacts"
     assert settings.remotion_renderer_path == PROJECT_ROOT / "remotion-renderer"
     assert settings.youtube_uploader_path == PROJECT_ROOT / "youtube-uploader"
+
+
+def test_packaged_runtime_discovers_docker_working_directory(tmp_path: Path) -> None:
+    docker_root = tmp_path / "app"
+    docker_root.mkdir()
+    (docker_root / "pyproject.toml").write_text("[project]\nname='pleopod'\n", encoding="utf-8")
+    installed_module = (
+        tmp_path
+        / "usr"
+        / "local"
+        / "lib"
+        / "python3.12"
+        / "site-packages"
+        / "app"
+        / "core"
+        / "config.py"
+    )
+
+    assert discover_project_root(cwd=docker_root, module_path=installed_module) == docker_root
 
 
 def test_temporary_storage_backend_is_configurable() -> None:
