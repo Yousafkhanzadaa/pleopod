@@ -5,7 +5,14 @@ import base64
 import logging
 from typing import Any
 
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+    wait_random_exponential,
+)
 
 from app.core.config import Settings
 from app.core.tts import coerce_gemini_tts_voice_name
@@ -37,11 +44,17 @@ def _response_json_schema(response_schema: Any) -> Any:
     return response_schema
 
 
-def _is_retryable_tts_error(exc: BaseException) -> bool:
+def _is_retryable_gemini_error(exc: BaseException) -> bool:
     code = getattr(exc, "code", None)
     if isinstance(code, int):
-        return code == 429 or code >= 500
-    return True
+        return code in {408, 429} or code >= 500
+
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code in {408, 429} or status_code >= 500
+
+    return isinstance(exc, (ConnectionError, TimeoutError))
 
 
 class GeminiAIProvider(AIProvider):
@@ -52,7 +65,13 @@ class GeminiAIProvider(AIProvider):
         self.settings = settings
         self.client = genai.Client(api_key=settings.gemini_api_key)
 
-    @retry(wait=wait_exponential(multiplier=1, min=1, max=20), stop=stop_after_attempt(3))
+    @retry(
+        wait=wait_random_exponential(multiplier=1, max=30),
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception(_is_retryable_gemini_error),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
     async def generate_text(
         self,
         prompt: str,
@@ -73,32 +92,53 @@ class GeminiAIProvider(AIProvider):
         if urls:
             contents = f"{prompt}\n\nSpecific URLs to inspect:\n" + "\n".join(urls[:20])
 
-        config_kwargs: dict[str, Any] = {}
-        if tools:
-            config_kwargs["tools"] = tools
-        if response_schema is not None:
-            if tools and not _is_gemini_3_model(model):
-                logger.info(
-                    "Skipping Gemini structured output schema for model=%s because "
-                    "built-in tools with structured outputs require Gemini 3",
-                    model,
-                )
-            else:
-                config_kwargs["response_mime_type"] = "application/json"
-                config_kwargs["response_json_schema"] = _response_json_schema(response_schema)
+        candidate_models = self._text_candidate_models(model)
+        for index, candidate_model in enumerate(candidate_models):
+            config_kwargs: dict[str, Any] = {}
+            if tools:
+                config_kwargs["tools"] = tools
+            if response_schema is not None:
+                if tools and not _is_gemini_3_model(candidate_model):
+                    logger.info(
+                        "Skipping Gemini structured output schema for model=%s because "
+                        "built-in tools with structured outputs require Gemini 3",
+                        candidate_model,
+                    )
+                else:
+                    config_kwargs["response_mime_type"] = "application/json"
+                    config_kwargs["response_json_schema"] = _response_json_schema(response_schema)
 
-        response = await asyncio.to_thread(
-            self.client.models.generate_content,
-            model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
-        citations = self._extract_citations(response)
-        return TextGeneration(
-            text=self._extract_response_text(response),
-            citations=citations,
-            raw=self._response_debug_metadata(response, citations),
-        )
+            try:
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=candidate_model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(**config_kwargs),
+                )
+            except Exception as exc:
+                has_fallback = index + 1 < len(candidate_models)
+                if not has_fallback or not _is_retryable_gemini_error(exc):
+                    raise
+                logger.warning(
+                    "Gemini text generation failed transiently model=%s; "
+                    "trying fallback model=%s error=%s",
+                    candidate_model,
+                    candidate_models[index + 1],
+                    exc,
+                )
+                continue
+
+            citations = self._extract_citations(response)
+            result = TextGeneration(
+                text=self._extract_response_text(response),
+                citations=citations,
+                raw=self._response_debug_metadata(response, citations),
+            )
+            result.raw["requested_model"] = model
+            result.raw["resolved_model"] = candidate_model
+            return result
+
+        raise RuntimeError("No Gemini text model configured")
 
     @retry(wait=wait_exponential(multiplier=1, min=1, max=20), stop=stop_after_attempt(3))
     async def generate_image(self, prompt: str, model: str) -> ImageGeneration:
@@ -221,7 +261,7 @@ class GeminiAIProvider(AIProvider):
     @retry(
         wait=wait_exponential(multiplier=2, min=2, max=30),
         stop=stop_after_attempt(5),
-        retry=retry_if_exception(_is_retryable_tts_error),
+        retry=retry_if_exception(_is_retryable_gemini_error),
         reraise=True,
     )
     async def _generate_tts_with_retry(
@@ -263,6 +303,13 @@ class GeminiAIProvider(AIProvider):
         if not isinstance(data, bytes):
             raise RuntimeError("Gemini TTS returned audio data in an unsupported format")
         return AudioGeneration(pcm_data=data, sample_rate=24000)
+
+    def _text_candidate_models(self, model: str) -> list[str]:
+        models = [model]
+        fallback_model = self.settings.gemini_text_fallback_model
+        if fallback_model and fallback_model not in models:
+            models.append(fallback_model)
+        return models
 
     def _tts_speech_config(self, types: Any, speakers: list[SpeakerVoice]) -> Any:
         def voice_config(voice_name: str) -> Any:

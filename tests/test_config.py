@@ -13,6 +13,7 @@ def test_default_gemini_models_use_low_cost_development_profile(
         "GEMINI_RESEARCH_MODEL",
         "GEMINI_SCRIPT_MODEL",
         "GEMINI_VERIFICATION_MODEL",
+        "GEMINI_TEXT_FALLBACK_MODEL",
         "GEMINI_TTS_MODEL",
         "GEMINI_TTS_FALLBACK_MODEL",
         "GEMINI_IMAGE_MODEL",
@@ -38,6 +39,7 @@ def test_default_gemini_models_use_low_cost_development_profile(
     assert settings.gemini_research_model == "gemini-2.5-flash-lite"
     assert settings.gemini_script_model == "gemini-2.5-flash-lite"
     assert settings.gemini_verification_model == "gemini-2.5-flash-lite"
+    assert settings.gemini_text_fallback_model == "gemini-2.5-flash-lite"
     assert settings.gemini_tts_model == "gemini-2.5-flash-preview-tts"
     assert settings.gemini_tts_fallback_model == "gemini-2.5-flash-preview-tts"
     assert settings.gemini_image_model == "imagen-4.0-fast-generate-001"

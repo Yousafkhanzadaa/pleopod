@@ -377,6 +377,7 @@ Recommended scheduled Railway settings:
 
 ```env
 AI_PROVIDER=gemini
+GEMINI_TEXT_FALLBACK_MODEL=gemini-2.5-flash-lite
 STORAGE_BACKEND=temporary
 TEMPORARY_STORAGE_PATH=/tmp/pleopod-artifacts
 ENABLE_VIDEO_RENDERING=false
