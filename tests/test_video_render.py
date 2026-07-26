@@ -276,6 +276,105 @@ async def test_build_video_payload_includes_audio_segment_line_timings() -> None
     ]
 
 
+@pytest.mark.asyncio
+async def test_build_video_payload_repairs_stale_empty_speaker_timings() -> None:
+    context = _Context()
+
+    payload = await build_video_payload(
+        _job(),
+        _script(),
+        _episode(),
+        {
+            "r2_key": "jobs/job-1/audio/final.mp3",
+            "mime_type": "audio/mpeg",
+            "metadata": {
+                "duration_seconds": 5,
+                "line_timings": [
+                    {
+                        "id": "line_001",
+                        "speaker": "",
+                        "text": "Welcome back.",
+                        "start_seconds": 0,
+                        "end_seconds": 2,
+                    },
+                    {
+                        "id": "line_002",
+                        "speaker": "",
+                        "text": "",
+                        "start_seconds": 2,
+                        "end_seconds": 3,
+                    },
+                    {
+                        "id": "line_003",
+                        "speaker": " ",
+                        "text": "Let's unpack it.",
+                        "start_seconds": 3,
+                        "end_seconds": 5,
+                    },
+                ],
+            },
+        },
+        {"r2_key": "jobs/job-1/thumbnail/cover.png"},
+        context,  # type: ignore[arg-type]
+    )
+
+    assert payload["lineTimings"] == [
+        {
+            "id": "line_001",
+            "speaker": "Arman",
+            "text": "Welcome back.",
+            "startSeconds": 0.0,
+            "endSeconds": 2.0,
+        },
+        {
+            "id": "line_003",
+            "speaker": "Arman",
+            "text": "Let's unpack it.",
+            "startSeconds": 3.0,
+            "endSeconds": 5.0,
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_video_payload_labels_unlabeled_segment_lines() -> None:
+    context = _Context()
+
+    payload = await build_video_payload(
+        _job(),
+        _script(),
+        _episode(),
+        {
+            "r2_key": "jobs/job-1/audio/final.mp3",
+            "mime_type": "audio/mpeg",
+            "metadata": {
+                "duration_seconds": 6,
+                "segment_timings": [
+                    {
+                        "index": 1,
+                        "start_seconds": 0,
+                        "end_seconds": 6,
+                        "source_transcript": (
+                            "Arman: Welcome.\n"
+                            "This line lost its label.\n"
+                            "Arman: Let's unpack it."
+                        ),
+                    }
+                ],
+            },
+        },
+        {"r2_key": "jobs/job-1/thumbnail/cover.png"},
+        context,  # type: ignore[arg-type]
+    )
+
+    assert [timing["speaker"] for timing in payload["lineTimings"]] == [
+        "Arman",
+        "Arman",
+        "Arman",
+    ]
+    assert payload["lineTimings"][1]["text"] == "This line lost its label."
+
+
 def test_renderable_payload_rewrites_local_assets_to_http_urls() -> None:
     payload = {
         "audioUrl": "file:///tmp/final.mp3",

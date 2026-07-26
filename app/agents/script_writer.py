@@ -16,6 +16,7 @@ _TTS_PREAMBLE_RE = re.compile(
     r"(?:conversation\s+between|talk\s+by|monologue\s+by)\s+[^:\n]+:\s*",
     re.IGNORECASE,
 )
+_TRANSCRIPT_HEADER_RE = re.compile(r"^\s*#{0,6}\s*TRANSCRIPT:?\s*$", re.IGNORECASE)
 _SPEAKER_LINE_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(?P<label>.+?)\s*(?P<sep>:| - | – | — )\s*(?P<body>.+?)\s*$"
 )
@@ -69,15 +70,11 @@ class ScriptWriterAgent(PipelineAgent):
             response_schema=PodcastScript,
         )
         script = parse_model_json(response.text, PodcastScript)
-        script = self._normalize_script(script)
-        script = self._enforce_min_turns(script, job)
         try:
-            self._validate_script(script, job)
+            script = self.normalize_and_validate_script(script, job)
         except ValueError as exc:
             script = await self._repair_script(context, script, str(exc), job)
-            script = self._normalize_script(script)
-            script = self._enforce_min_turns(script, job)
-            self._validate_script(script, job)
+            script = self.normalize_and_validate_script(script, job)
             script.setdefault("metadata", {})["script_repaired_after_validation_error"] = True
         await context.artifact_service.put_text(
             f"jobs/{job_id}/scripts/script_v1.md",
@@ -121,6 +118,17 @@ class ScriptWriterAgent(PipelineAgent):
             response_schema=PodcastScript,
         )
         return parse_model_json(response.text, PodcastScript)
+
+    def normalize_and_validate_script(
+        self,
+        script: dict[str, Any],
+        job: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return a canonical single-speaker script that downstream agents can trust."""
+        normalized = self._normalize_script(script)
+        normalized = self._enforce_min_turns(normalized, job or {})
+        self._validate_script(normalized, job)
+        return normalized
 
     def _enforce_min_turns(
         self, script: dict[str, Any], job: dict[str, Any]
@@ -178,9 +186,23 @@ class ScriptWriterAgent(PipelineAgent):
             if not line:
                 normalized_lines.append("")
                 continue
+            if _TRANSCRIPT_HEADER_RE.match(line):
+                continue
 
             speaker_line = self._normalize_speaker_line(line, speakers)
-            normalized_lines.append(speaker_line or line)
+            if speaker_line:
+                normalized_lines.append(speaker_line)
+                continue
+
+            # Short-form scripts have exactly one speaker. Model rewrites sometimes
+            # wrap a spoken turn onto an unlabeled continuation line; preserving that
+            # line with no label later creates an empty-speaker caption timing.
+            if len(speaker_names) == 1:
+                spoken_text = re.sub(r"^\s*(?:[-*]\s+|#{1,6}\s+)", "", line).strip()
+                if spoken_text:
+                    normalized_lines.append(f"{speaker_names[0]}: {spoken_text}")
+                continue
+            normalized_lines.append(line)
 
         normalized_body = "\n".join(normalized_lines).strip()
         return f"{prefix}{normalized_body}".strip()

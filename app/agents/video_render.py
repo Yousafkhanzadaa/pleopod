@@ -645,7 +645,11 @@ async def build_video_payload(
 ) -> dict[str, Any]:
     audio_duration_seconds = await resolve_audio_duration_seconds(audio_artifact, context)
     duration_seconds = video_duration_seconds(job, episode, audio_duration_seconds)
-    line_timings = clip_line_timings(build_dialogue_timings(audio_artifact), duration_seconds)
+    default_speaker = primary_script_speaker_name(script)
+    line_timings = clip_line_timings(
+        build_dialogue_timings(audio_artifact, default_speaker=default_speaker),
+        duration_seconds,
+    )
     word_timings = clip_word_timings(
         (audio_artifact.get("metadata") or {}).get("word_timings") or [],
         duration_seconds,
@@ -798,7 +802,22 @@ def normalize_chapters(chapters: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return normalized
 
 
-def build_dialogue_timings(audio_artifact: dict[str, Any]) -> list[dict[str, Any]]:
+def primary_script_speaker_name(script: dict[str, Any]) -> str:
+    return next(
+        (
+            str(speaker.get("name") or "").strip()
+            for speaker in script.get("speakers") or []
+            if isinstance(speaker, dict) and str(speaker.get("name") or "").strip()
+        ),
+        "",
+    )
+
+
+def build_dialogue_timings(
+    audio_artifact: dict[str, Any],
+    *,
+    default_speaker: str = "",
+) -> list[dict[str, Any]]:
     metadata = audio_artifact.get("metadata") or {}
     if not isinstance(metadata, dict):
         return []
@@ -817,11 +836,16 @@ def build_dialogue_timings(audio_artifact: dict[str, Any]) -> list[dict[str, Any
                 or end_seconds <= start_seconds
             ):
                 continue
+            speaker = str(timing.get("speaker") or "").strip() or default_speaker.strip()
+            text = str(timing.get("text") or "").strip()
+            if not speaker or not text:
+                continue
+            timing_id = str(timing.get("id") or "").strip() or f"line_{index:03d}"
             aligned_timings.append(
                 {
-                    "id": str(timing.get("id") or f"line_{index:03d}"),
-                    "speaker": str(timing.get("speaker") or ""),
-                    "text": str(timing.get("text") or ""),
+                    "id": timing_id,
+                    "speaker": speaker,
+                    "text": text,
                     "startSeconds": round_seconds(start_seconds),
                     "endSeconds": round_seconds(end_seconds),
                 }
@@ -842,7 +866,10 @@ def build_dialogue_timings(audio_artifact: dict[str, Any]) -> list[dict[str, Any
         end_seconds = nonnegative_float(segment.get("end_seconds"))
         if start_seconds is None or end_seconds is None or end_seconds <= start_seconds:
             continue
-        lines = parse_dialogue_lines(str(segment.get("source_transcript") or ""))
+        lines = parse_dialogue_lines(
+            str(segment.get("source_transcript") or ""),
+            default_speaker=default_speaker,
+        )
         if not lines:
             continue
 
@@ -872,20 +899,43 @@ def build_dialogue_timings(audio_artifact: dict[str, Any]) -> list[dict[str, Any
     return timings
 
 
-def parse_dialogue_lines(transcript: str) -> list[dict[str, str]]:
-    lines = []
+def parse_dialogue_lines(
+    transcript: str,
+    *,
+    default_speaker: str = "",
+) -> list[dict[str, str]]:
+    resolved_speaker = default_speaker.strip()
+    if not resolved_speaker:
+        resolved_speaker = next(
+            (
+                match.group(1).strip()
+                for raw_line in transcript.splitlines()
+                if (match := _DIALOGUE_LINE_RE.match(raw_line.strip()))
+            ),
+            "",
+        )
+
+    lines: list[dict[str, str]] = []
     for raw_line in transcript.splitlines():
         line = raw_line.strip()
         if not line:
             continue
         match = _DIALOGUE_LINE_RE.match(line)
         if not match:
+            if resolved_speaker:
+                text = strip_speaker_labels(line, [resolved_speaker])
+                if text:
+                    lines.append({"speaker": resolved_speaker, "text": text})
             continue
-        speaker = match.group(1).strip()
+        source_speaker = match.group(1).strip()
+        speaker = resolved_speaker or source_speaker
+        text = strip_speaker_labels(match.group(2), [source_speaker, speaker])
+        if not speaker or not text:
+            continue
         lines.append(
             {
                 "speaker": speaker,
-                "text": strip_speaker_labels(match.group(2), [speaker]),
+                "text": text,
             }
         )
     return lines

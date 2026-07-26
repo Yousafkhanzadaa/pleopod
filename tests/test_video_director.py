@@ -69,6 +69,16 @@ def test_approximate_line_timings_are_ordered_and_fill_duration() -> None:
     assert timings[0]["end_seconds"] == timings[1]["start_seconds"]
 
 
+def test_approximate_line_timings_labels_unlabeled_continuations() -> None:
+    timings = approximate_line_timings(
+        "Arman: first spoken line.\nA wrapped continuation.\nArman: final line.",
+        20,
+    )
+
+    assert [timing["speaker"] for timing in timings] == ["Arman", "Arman", "Arman"]
+    assert timings[1]["text"] == "A wrapped continuation."
+
+
 def test_line_timings_from_segment_timings_splits_lines() -> None:
     timings = line_timings_from_segment_timings(
         [

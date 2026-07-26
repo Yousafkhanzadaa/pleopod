@@ -49,6 +49,36 @@ def test_normalize_script_rewrites_common_speaker_label_variants() -> None:
     agent._validate_script(normalized)
 
 
+def test_normalize_script_labels_unlabeled_continuations() -> None:
+    agent = ScriptWriterAgent()
+    script = {
+        "title": "Test Episode",
+        "slug": "test-episode",
+        "summary": "Summary",
+        "description": "Description",
+        "speakers": _speakers(),
+        "transcript": (
+            "### TRANSCRIPT\n"
+            "Arman: Welcome back.\n"
+            "This continuation was wrapped onto its own line."
+        ),
+        "used_claims": [],
+    }
+
+    normalized = agent.normalize_and_validate_script(script)
+
+    assert "TRANSCRIPT" not in normalized["transcript"]
+    assert "Arman: Welcome back." in normalized["transcript"]
+    assert (
+        "Arman: This continuation was wrapped onto its own line."
+        in normalized["transcript"]
+    )
+    assert all(
+        turn["speaker"] == "Arman"
+        for turn in canonical_dialogue_turns(normalized["transcript"])
+    )
+
+
 def test_validate_script_allows_transcript_over_word_budget() -> None:
     agent = ScriptWriterAgent()
     script = {

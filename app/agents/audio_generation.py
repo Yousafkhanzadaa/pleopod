@@ -198,6 +198,15 @@ class AudioGenerationAgent(PipelineAgent):
                     str(chunk.get("source_transcript") or "")
                     for chunk in config.get("chunks") or []
                 )
+                default_speaker = next(
+                    (
+                        str(speaker.get("speaker") or "").strip()
+                        for speaker in config.get("speakers") or []
+                        if isinstance(speaker, dict)
+                        and str(speaker.get("speaker") or "").strip()
+                    ),
+                    "",
+                )
                 canonical_words = canonical_word_timings(
                     source_transcript,
                     alignment.words,
@@ -211,6 +220,7 @@ class AudioGenerationAgent(PipelineAgent):
                     "line_timings": line_timings_from_word_alignment(
                         source_transcript,
                         canonical_words,
+                        default_speaker=default_speaker,
                     ),
                 }
             except Exception:  # noqa: BLE001 - alignment is an optional quality enhancement
@@ -432,9 +442,11 @@ def canonical_word_timings(
 def line_timings_from_word_alignment(
     source_transcript: str,
     words: list[WordTiming],
+    *,
+    default_speaker: str = "",
 ) -> list[dict[str, Any]]:
     """Map measured word timestamps back onto the script's dialogue lines."""
-    lines = _parse_dialogue_lines(source_transcript)
+    lines = _parse_dialogue_lines(source_transcript, default_speaker=default_speaker)
     valid_words = [
         word
         for word in words
@@ -497,7 +509,22 @@ def line_timings_from_word_alignment(
     return timings
 
 
-def _parse_dialogue_lines(transcript: str) -> list[dict[str, str]]:
+def _parse_dialogue_lines(
+    transcript: str,
+    *,
+    default_speaker: str = "",
+) -> list[dict[str, str]]:
+    resolved_speaker = default_speaker.strip()
+    if not resolved_speaker:
+        resolved_speaker = next(
+            (
+                match.group(1).strip()
+                for raw_line in transcript.splitlines()
+                if (match := _DIALOGUE_LINE_RE.match(raw_line.strip()))
+            ),
+            "",
+        )
+
     lines: list[dict[str, str]] = []
     for raw_line in transcript.splitlines():
         line = raw_line.strip()
@@ -505,17 +532,21 @@ def _parse_dialogue_lines(transcript: str) -> list[dict[str, str]]:
             continue
         match = _DIALOGUE_LINE_RE.match(line)
         if match:
-            speaker = match.group(1).strip()
+            source_speaker = match.group(1).strip()
+            speaker = resolved_speaker or source_speaker
             lines.append(
                 {
                     "speaker": speaker,
-                    "text": strip_speaker_labels(match.group(2), [speaker]),
+                    "text": strip_speaker_labels(
+                        match.group(2),
+                        [source_speaker, speaker],
+                    ),
                 }
             )
         else:
             text = narration_text(line)
             if text:
-                lines.append({"speaker": "", "text": text})
+                lines.append({"speaker": resolved_speaker, "text": text})
     return lines
 
 

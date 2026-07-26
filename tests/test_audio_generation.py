@@ -122,6 +122,25 @@ def test_line_timings_from_word_alignment_maps_script_lines() -> None:
     ]
 
 
+def test_line_timings_from_word_alignment_labels_unlabeled_lines() -> None:
+    words = [
+        WordTiming("First", 0.1, 0.3),
+        WordTiming("idea", 0.31, 0.55),
+        WordTiming("Wrapped", 0.8, 1.0),
+        WordTiming("continuation", 1.01, 1.25),
+        WordTiming("Final", 1.4, 1.6),
+        WordTiming("point", 1.61, 1.9),
+    ]
+
+    timings = line_timings_from_word_alignment(
+        "Arman: First idea.\nWrapped continuation.\nArman: Final point.",
+        words,
+    )
+
+    assert [item["speaker"] for item in timings] == ["Arman", "Arman", "Arman"]
+    assert timings[1]["text"] == "Wrapped continuation."
+
+
 def test_canonical_word_timings_restores_verified_spelling_and_numbers() -> None:
     aligned = [
         WordTiming("by", 0.2, 0.4),

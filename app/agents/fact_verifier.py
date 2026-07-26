@@ -4,6 +4,7 @@ from typing import Any
 
 from app.agents.base import AgentContext, AgentResult, PipelineAgent
 from app.agents.prompts import verification_prompt
+from app.agents.script_writer import ScriptWriterAgent
 from app.core.json_utils import parse_model_json, to_pretty_json
 from app.models.enums import ArtifactType, JobStatus, PipelineStep
 from app.schemas.agent_outputs import VerificationReport
@@ -27,8 +28,15 @@ class FactVerifierAgent(PipelineAgent):
         verification = parse_model_json(response.text, VerificationReport)
         fixed_transcript = verification.get("fixed_transcript")
         if fixed_transcript:
-            script["transcript"] = fixed_transcript
-            script.setdefault("metadata", {})["fact_verifier_changed_transcript"] = True
+            script = {
+                **script,
+                "transcript": fixed_transcript,
+                "metadata": {
+                    **(script.get("metadata") or {}),
+                    "fact_verifier_changed_transcript": True,
+                },
+            }
+            script = ScriptWriterAgent().normalize_and_validate_script(script, job)
         script["verification"] = verification
         report = self._report_markdown(verification)
         await context.artifact_service.put_text(

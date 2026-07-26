@@ -397,8 +397,18 @@ def _coerce_line_timings(
     duration: float,
 ) -> list[PlannedLineTiming]:
     raw = line_timings or approximate_line_timings(str(script.get("transcript") or ""), duration)
+    default_speaker = _script_speaker_name(script) or next(
+        (
+            str(timing.get("speaker") or "").strip()
+            for timing in raw
+            if isinstance(timing, dict) and str(timing.get("speaker") or "").strip()
+        ),
+        "",
+    )
     coerced: list[PlannedLineTiming] = []
     for timing in raw:
+        if not isinstance(timing, dict):
+            continue
         start = _to_float(timing.get("start_seconds"))
         end = _to_float(timing.get("end_seconds"))
         if start is None or end is None:
@@ -407,11 +417,15 @@ def _coerce_line_timings(
         end = min(max(0.0, end), duration)
         if end <= start:
             continue
+        speaker = str(timing.get("speaker") or "").strip() or default_speaker
+        text = str(timing.get("text") or "").strip()
+        if not speaker or not text:
+            continue
         coerced.append(
             PlannedLineTiming(
                 id=str(timing.get("id") or f"line_{len(coerced) + 1:03d}"),
-                speaker=str(timing.get("speaker") or ""),
-                text=str(timing.get("text") or ""),
+                speaker=speaker,
+                text=text,
                 start_seconds=round(start, 2),
                 end_seconds=round(end, 2),
             )
@@ -446,6 +460,14 @@ def _coerce_word_timings(
 
 def _parse_dialogue(transcript: str) -> list[dict[str, str]]:
     body = _PREAMBLE_RE.sub("", (transcript or "").strip(), count=1).strip()
+    default_speaker = next(
+        (
+            match.group(1).strip()
+            for raw_line in body.splitlines()
+            if (match := _DIALOGUE_LINE_RE.match(raw_line.strip()))
+        ),
+        "",
+    )
     lines: list[dict[str, str]] = []
     for raw_line in body.splitlines():
         line = raw_line.strip()
@@ -453,16 +475,41 @@ def _parse_dialogue(transcript: str) -> list[dict[str, str]]:
             continue
         match = _DIALOGUE_LINE_RE.match(line)
         if match:
-            speaker = match.group(1).strip()
+            source_speaker = match.group(1).strip()
+            speaker = default_speaker or source_speaker
             lines.append(
                 {
                     "speaker": speaker,
-                    "text": strip_speaker_labels(match.group(2), [speaker]),
+                    "text": strip_speaker_labels(
+                        match.group(2),
+                        [source_speaker, speaker],
+                    ),
                 }
             )
         else:
-            lines.append({"speaker": "", "text": line})
+            lines.append({"speaker": default_speaker, "text": line})
     return lines
+
+
+def _script_speaker_name(script: dict[str, Any]) -> str:
+    speaker = next(
+        (
+            str(item.get("name") or "").strip()
+            for item in script.get("speakers") or []
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        ),
+        "",
+    )
+    if speaker:
+        return speaker
+    return next(
+        (
+            line["speaker"]
+            for line in _parse_dialogue(str(script.get("transcript") or ""))
+            if line["speaker"]
+        ),
+        "",
+    )
 
 
 def _chunk(items: list[Any], count: int) -> list[list[Any]]:
