@@ -49,7 +49,7 @@ def test_default_gemini_models_use_low_cost_development_profile(
     assert settings.resolved_thumbnail_image_model == "fake-image"
     assert settings.openai_image_model == "gpt-image-2"
     assert settings.openai_image_size == "1280x720"
-    assert settings.openai_image_quality == "medium"
+    assert settings.openai_image_quality == "high"
     assert settings.tts_generation_mode == "chunked"
     assert settings.autopublish_topic_model == "gemini-2.5-flash-lite"
     assert settings.autopublish_target_duration_seconds == 90
@@ -85,7 +85,7 @@ def test_thumbnail_image_requires_openai_key_when_resolved_to_openai() -> None:
         settings.validate_thumbnail_image()
 
 
-def test_voice_auto_uses_openai_and_alignment_when_key_is_available() -> None:
+def test_voice_auto_uses_gemini_even_when_openai_key_is_available() -> None:
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         ai_provider="gemini",
@@ -93,9 +93,23 @@ def test_voice_auto_uses_openai_and_alignment_when_key_is_available() -> None:
         openai_api_key="openai-key",
     )
 
+    assert settings.resolved_voice_provider == "gemini"
+    assert settings.gemini_tts_model == "gemini-2.5-flash-preview-tts"
+    assert settings.enable_word_alignment is True
+    settings.validate_voice()
+
+
+def test_voice_can_be_explicitly_set_to_openai() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        ai_provider="gemini",
+        gemini_api_key="gemini-key",
+        voice_provider="openai",
+        openai_api_key="openai-key",
+    )
+
     assert settings.resolved_voice_provider == "openai"
     assert settings.openai_tts_model == "gpt-4o-mini-tts"
-    assert settings.enable_word_alignment is True
     settings.validate_voice()
 
 

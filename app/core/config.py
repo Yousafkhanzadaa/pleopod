@@ -88,12 +88,11 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_image_model: str = OPENAI_IMAGE_MODEL
     openai_image_size: str = "1280x720"
-    openai_image_quality: Literal["low", "medium", "high", "auto"] = "medium"
+    openai_image_quality: Literal["low", "medium", "high", "auto"] = "high"
     openai_image_output_format: Literal["png", "jpeg", "webp"] = "png"
 
-    # Professional narration voice. "auto" uses OpenAI gpt-4o-mini-tts when an
-    # OpenAI key is present (documentary-grade, directable delivery), falling
-    # back to Gemini TTS, and to the fake tone in fake mode.
+    # Cost-efficient narration. "auto" uses Gemini TTS for real AI runs and the
+    # deterministic fake tone in fake mode. OpenAI remains an explicit opt-in.
     voice_provider: Literal["auto", "openai", "gemini", "fake"] = "auto"
     openai_tts_model: str = "gpt-4o-mini-tts"
     openai_tts_voice: str = "onyx"
@@ -250,8 +249,6 @@ class Settings(BaseSettings):
             return self.voice_provider
         if self.ai_provider == "fake":
             return "fake"
-        if self.openai_api_key:
-            return "openai"
         return "gemini"
 
     @property

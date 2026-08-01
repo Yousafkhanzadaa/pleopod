@@ -210,9 +210,12 @@ Most settings are documented in `.env.example`. The most important groups are:
 | `R2_*` | Cloudflare R2 credentials and bucket config. |
 | `AI_PROVIDER` | `fake` or `gemini`. |
 | `GEMINI_API_KEY` | Required when `AI_PROVIDER=gemini`. |
-| `THUMBNAIL_IMAGE_PROVIDER` | `auto`, `fake`, `gemini`, or `openai`. `auto` uses fake thumbnails in fake mode and OpenAI otherwise. |
+| `VOICE_PROVIDER` | `gemini` in the production template. `auto` uses fake narration in fake mode and Gemini otherwise; OpenAI remains an explicit opt-in. |
+| `GEMINI_TTS_MODEL` | Defaults to the cost-efficient `gemini-2.5-flash-preview-tts`. |
+| `THUMBNAIL_IMAGE_PROVIDER` | `openai` in the production template. `auto`, `fake`, and `gemini` remain available for local/testing or an intentional Imagen deployment. |
 | `OPENAI_API_KEY` | Required when thumbnail generation resolves to OpenAI. |
 | `OPENAI_IMAGE_MODEL` | Defaults to `gpt-image-2` for generated thumbnails. |
+| `OPENAI_IMAGE_QUALITY` | Defaults to `high` for final thumbnails. |
 | `GEMINI_THUMBNAIL_MODEL` | Creates the structured thumbnail hook and visual brief. Defaults to `gemini-2.5-flash-lite`; image generation remains a single request. |
 | `TTS_GENERATION_MODE` | `chunked` for safer Gemini TTS calls, or `single_request` for short episodes only. |
 | `AUTOPUBLISH_*` | Topic Scout settings for scheduled self-running publishing jobs. |
