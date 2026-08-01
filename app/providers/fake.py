@@ -81,17 +81,12 @@ class FakeAIProvider(AIProvider):
             thumbnail_data: dict[str, Any] = {
                 "hook": "CODE JUST CHANGED",
                 "accent_word": "CHANGED",
-                "focal_subject": (
-                    "one developer's hand holding a compact code terminal card in close-up"
-                ),
-                "supporting_element": "one clean mechanical switch moving into place",
-                "visual_story": (
-                    "A familiar developer workflow visibly clicks into a more powerful mode."
-                ),
-                "emotion": "curiosity",
                 "layout": "subject_right_text_left",
-                "image_style": "editorial_photo",
-                "palette": "signal_yellow",
+                "accent_color": "#FFD43B",
+                "image_prompt": (
+                    "Show a developer's familiar workflow visibly shifting into a more "
+                    "powerful mode, using a concept and visual treatment suited to the episode."
+                ),
             }
             return TextGeneration(text=json.dumps(thumbnail_data))
         if (

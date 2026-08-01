@@ -18,15 +18,6 @@ _FONT_CANDIDATES = (
     "/Library/Fonts/Arial Black.ttf",
 )
 
-_ACCENT_COLORS = {
-    "signal_yellow": "#FFD43B",
-    "electric_blue": "#4D96FF",
-    "coral_red": "#FF5A55",
-    "mint_green": "#35D6A0",
-    "hot_orange": "#FF8A3D",
-}
-
-
 @dataclass(frozen=True)
 class ThumbnailRenderResult:
     data: bytes
@@ -78,7 +69,7 @@ def render_thumbnail_artwork(
     luminance = _zone_luminance(image, zone)
     base_fill = "#FFFFFF" if luminance < 145 else "#101217"
     stroke_fill = "#080A0E" if base_fill == "#FFFFFF" else "#FFFFFF"
-    accent_fill = _ACCENT_COLORS.get(str(brief.get("palette")), "#FFD43B")
+    accent_fill = _accent_color(brief.get("accent_color"))
     accent_word = _normalized_word(str(brief.get("accent_word") or words[-1]))
     stroke_width = max(4, font.size // 24)
     shadow_offset = max(3, font.size // 32)
@@ -118,6 +109,7 @@ def render_thumbnail_artwork(
             "typography_composited": True,
             "hook": hook,
             "accent_word": accent_word,
+            "accent_color": accent_fill,
             "layout": layout,
             "font": Path(resolved_font).name if resolved_font else "Pillow default",
             "font_size": font.size,
@@ -224,3 +216,12 @@ def _normalized_word(value: str) -> str:
     return "".join(
         character for character in value.upper() if character.isalnum() or character == "$"
     )
+
+
+def _accent_color(value: Any) -> str:
+    color = str(value or "").strip().upper()
+    if len(color) == 7 and color.startswith("#") and all(
+        character in "0123456789ABCDEF" for character in color[1:]
+    ):
+        return color
+    return "#FFD43B"

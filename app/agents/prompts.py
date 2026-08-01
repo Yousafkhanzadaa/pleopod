@@ -350,95 +350,86 @@ JSON shape:
 """.strip()
 
 
-def thumbnail_director_prompt(script: Any) -> str:
+def thumbnail_director_prompt(script: Any, job: Any | None = None) -> str:
+    episode_data = _thumbnail_episode_data(script, job)
     return f"""
-You are the thumbnail creative director for a factual technology-news YouTube channel.
+You are a senior YouTube thumbnail strategist and art director.
 
-Build one high-conviction thumbnail idea for this episode:
-Title: {script.get("title")}
-Summary: {script.get("summary")}
+Understand the episode, the intended audience, and the promise made by the title. Then
+design the strongest truthful thumbnail concept for this specific video. Use your
+knowledge of how people discover and evaluate videos in this content market.
 
-The thumbnail and title must work as a pair. The thumbnail should create one clear
-question, tension, or surprising implication that the title resolves. Do not merely
-repeat or shorten the title.
+EPISODE AND MARKET DATA
+{to_pretty_json(episode_data)}
 
-Creative laws:
-- Communicate exactly one idea in under one second at phone size.
-- Use one dominant subject and at most one supporting element.
-- Prefer a concrete visual story over an infographic, collage, diagram, or UI mockup.
-- The hook must be 2-4 short words, ideally 14 characters or fewer before spaces.
-- The hook must be truthful, specific, emotionally legible, and additive to the title.
-- Avoid filler hooks such as TECH UPDATE, BREAKING NEWS, BIG CHANGE, or THE FUTURE.
-- Avoid generic AI imagery: no humanoid robot, glowing brain, circuit head, blue
-  hologram, floating interface, neon data tunnel, or globe made from circuitry unless
-  that physical object is literally central to the reported story.
-- A real public figure may be the subject only when that person is genuinely central
-  to the story. Do not invent endorsements, reactions, or events.
-- Choose a close, bold crop and a flat, limited color palette. No gradients.
-- Put the subject on one side and reserve the opposite side for large typography.
-- Keep the bottom-right corner free of essential detail for YouTube's duration badge.
-- No logos, brand marks, readable product labels, screenshots, charts, numbers, or
-  text inside the generated picture. Typography is added separately by the backend.
-- Choose accent_word as one exact word from hook.
+The title and thumbnail must work together. Decide what the image should communicate
+instantly, what visual will create relevant curiosity, and what short hook adds value
+without simply repeating the title.
 
-Return JSON only with this shape:
+You have full creative freedom. Choose the subject, visual medium, art direction,
+setting, perspective, framing, lighting, color palette, mood, and level of realism that
+best fit this episode and audience. Make a fresh decision from the supplied content;
+do not reuse a default style or force every topic into the same visual formula.
+
+The generated image will be used as a 16:9 YouTube thumbnail and viewed at small sizes.
+The backend adds the hook afterward, so choose which side should contain the subject and
+which side should remain usable for the text overlay. The image itself must not contain
+readable text. Keep the concept accurate and avoid implying events or claims that are
+not supported by the episode.
+
+Write image_prompt as a complete, standalone direction for the image-generation model.
+Describe the final image you chose—not your reasoning, a list of options, or a reusable
+template. Be specific where specificity improves this concept, and leave stylistic
+choices open only when they genuinely do not matter.
+
+Return JSON only, with no Markdown or commentary.
 {{
-  "hook": "2-4 WORD HOOK",
-  "accent_word": "one word from hook",
-  "focal_subject": "one concrete subject with crop and expression/action",
-  "supporting_element": "one optional concrete prop or null",
-  "visual_story": "the single frozen moment and its tension",
-  "emotion": "curiosity | tension | urgency | awe | surprise | confidence",
+  "hook": "2-4 word thumbnail hook",
+  "accent_word": "one exact word copied from hook",
   "layout": "subject_right_text_left | subject_left_text_right",
-  "image_style": "editorial_photo | documentary_portrait | conceptual_object | clean_3d_editorial",
-  "palette": "signal_yellow | electric_blue | coral_red | mint_green | hot_orange"
+  "accent_color": "#RRGGBB color chosen for the hook accent",
+  "image_prompt": "standalone, episode-specific direction for the final thumbnail artwork"
 }}
 """.strip()
 
 
-def thumbnail_prompt(script: Any, brief: Any | None = None) -> str:
-    creative = normalized_thumbnail_brief(script, brief)
+def thumbnail_prompt(
+    script: Any,
+    brief: Any | None = None,
+    job: Any | None = None,
+) -> str:
+    creative = normalized_thumbnail_brief(script, brief, job)
     subject_side = "right" if creative["layout"] == "subject_right_text_left" else "left"
     text_side = "left" if subject_side == "right" else "right"
-    supporting_element = creative.get("supporting_element") or "none"
+    episode_data = _thumbnail_episode_data(script, job)
+    episode_data.pop("transcript", None)
     return f"""
-Create the text-free photographic artwork for a premium YouTube technology-news
-thumbnail. This is one bold visual story, not a poster or infographic.
+Create the final background artwork for a YouTube thumbnail using the content and
+creative direction below.
 
-Episode title: {script.get("title")}
-Summary: {script.get("summary")}
-Intended viewer emotion: {creative["emotion"]}
-Single visual story: {creative["visual_story"]}
-Dominant focal subject: {creative["focal_subject"]}
-Only supporting element: {supporting_element}
-Art direction: {creative["image_style"]}
-Color direction: {creative["palette"]}
+EPISODE CONTEXT
+{to_pretty_json(episode_data)}
 
-Direction:
-- 16:9 YouTube thumbnail, 1280x720, optimized for mobile Home/Suggested feeds.
-- Compose the dominant subject on the {subject_side}, filling roughly 45-55% of the
-  frame with a close, confident crop.
-- Reserve the {text_side} 40-45% as genuinely clean negative space. The backend will
-  place the exact hook there later.
-- Use one subject and at most one supporting prop. Eliminate everything nonessential.
-- Make the visual relationship immediately understandable without reading the title.
-- Use a modern editorial-photography or premium advertising finish: tactile materials,
-  believable light, crisp edges, controlled depth, and intentional art direction.
-- Use flat color fields or a real environment with two main color families and one
-  accent. No gradients, rainbow palettes, neon fog, particle clouds, or cyberpunk glow.
-- Generate absolutely no text: no letters, words, numbers, labels, badges, captions,
-  UI, charts, lower-thirds, feature cards, signs, watermarks, or logos anywhere.
-- No collage, multi-panel layout, contact sheet, tiny objects, or decorative filler.
-- Avoid humanoid robots, glowing brains, circuit heads, holographic interfaces, and
-  generic blue AI imagery unless explicitly required by the focal subject above.
-- Leave the bottom-right corner visually clean for YouTube's duration badge.
-- Do not fabricate an event, product design, reaction, or endorsement.
-- The image must remain truthful to the episode while creating curiosity.
+CREATIVE DIRECTION
+{creative["image_prompt"]}
+
+Use your visual judgment to turn this direction into one cohesive, original image for
+this specific episode. The result must be a 16:9 composition that reads clearly at
+mobile thumbnail size and remains truthful to the supplied content.
+
+The subject belongs on the {subject_side}. Keep sufficient uncluttered space on the
+{text_side} for a large text overlay added after generation. Do not render the hook or
+any other readable text, logos, or watermarks in the image. Keep the bottom-right area
+free of essential detail because the platform may cover it with a duration badge.
 """.strip()
 
 
-def normalized_thumbnail_brief(script: Any, brief: Any | None = None) -> dict[str, Any]:
-    fallback = fallback_thumbnail_brief(script)
+def normalized_thumbnail_brief(
+    script: Any,
+    brief: Any | None = None,
+    job: Any | None = None,
+) -> dict[str, Any]:
+    fallback = fallback_thumbnail_brief(script, job)
     if not isinstance(brief, dict):
         return fallback
 
@@ -460,124 +451,48 @@ def normalized_thumbnail_brief(script: Any, brief: Any | None = None) -> dict[st
         accent_word = hook_words[-1] if hook_words else fallback["accent_word"]
     normalized["accent_word"] = accent_word
 
-    allowed = {
-        "emotion": {"curiosity", "tension", "urgency", "awe", "surprise", "confidence"},
-        "layout": {"subject_right_text_left", "subject_left_text_right"},
-        "image_style": {
-            "editorial_photo",
-            "documentary_portrait",
-            "conceptual_object",
-            "clean_3d_editorial",
-        },
-        "palette": {
-            "signal_yellow",
-            "electric_blue",
-            "coral_red",
-            "mint_green",
-            "hot_orange",
-        },
-    }
-    for key, choices in allowed.items():
-        if normalized.get(key) not in choices:
-            normalized[key] = fallback[key]
+    if normalized.get("layout") not in {
+        "subject_right_text_left",
+        "subject_left_text_right",
+    }:
+        normalized["layout"] = fallback["layout"]
+
+    image_prompt = str(normalized.get("image_prompt") or "").strip()
+    normalized["image_prompt"] = image_prompt or fallback["image_prompt"]
+    normalized["accent_color"] = normalize_thumbnail_color(
+        normalized.get("accent_color"),
+        fallback=fallback["accent_color"],
+    )
     return normalized
 
 
-def fallback_thumbnail_brief(script: Any) -> dict[str, Any]:
-    title = str(script.get("title") or "").strip()
-    summary = str(script.get("summary") or "").strip()
-    combined = f"{title} {summary}".lower()
+def fallback_thumbnail_brief(
+    script: Any,
+    job: Any | None = None,
+) -> dict[str, Any]:
     hook = thumbnail_hook_text(script)
-
-    if re.search(r"\b(vaccine|clinical trial|human trial)\b", combined):
-        focal_subject = "a single pristine vaccine vial in extreme close-up"
-        supporting = "one subtle molecular form suspended inside the glass"
-        visual_story = (
-            "A medicine vial appears newly engineered, precise, and ready for a human trial."
-        )
-        emotion = "awe"
-        image_style = "conceptual_object"
-        palette = "mint_green"
-    elif re.search(r"\b(chip|semiconductor|gpu|superchip|processor)\b", combined):
-        focal_subject = "one oversized advanced processor in sharp three-quarter close-up"
-        supporting = "one clean fracture line or pressure reflection suggesting market tension"
-        visual_story = (
-            "A valuable processor sits under visible pressure, turning an abstract "
-            "market story into one object."
-        )
-        emotion = "tension"
-        image_style = "conceptual_object"
-        palette = "hot_orange"
-    elif re.search(r"\b(order|government|regulat|commission|policy|restriction)\b", combined):
-        focal_subject = "one imposing government document folder with a simple sealed edge"
-        supporting = "one restrained technology object caught beneath the folder"
-        visual_story = (
-            "Government authority visibly presses against a technology object, "
-            "freezing the policy conflict in one frame."
-        )
-        emotion = "tension"
-        image_style = "conceptual_object"
-        palette = "coral_red"
-    elif re.search(r"\b(ipo|valuation|billion|market|sell-?off|bubble)\b", combined):
-        focal_subject = "one glossy technology sphere under visible financial pressure"
-        supporting = "one small red market marker without any numbers or letters"
-        visual_story = (
-            "A valuable technology object looks inflated and close to breaking, "
-            "expressing market doubt without a chart."
-        )
-        emotion = "tension"
-        image_style = "clean_3d_editorial"
-        palette = "coral_red"
-    else:
-        focal_subject = "one concrete object that literally represents the episode's central event"
-        supporting = None
-        visual_story = (
-            "The central subject is caught at the exact moment the episode's "
-            "consequence becomes visible."
-        )
-        emotion = "curiosity"
-        image_style = "editorial_photo"
-        palette = "signal_yellow"
+    episode_data = _thumbnail_episode_data(script, job)
+    episode_data.pop("transcript", None)
 
     return {
         "hook": hook,
         "accent_word": thumbnail_hook_words(hook)[-1],
-        "focal_subject": focal_subject,
-        "supporting_element": supporting,
-        "visual_story": visual_story,
-        "emotion": emotion,
         "layout": "subject_right_text_left",
-        "image_style": image_style,
-        "palette": palette,
+        "accent_color": "#FFD43B",
+        "image_prompt": (
+            "Design an original thumbnail image specifically for this episode. Infer the "
+            "strongest visual concept from the episode context, then choose the subject, "
+            "visual medium, setting, composition, lighting, and color treatment that best "
+            "communicate it to the intended audience. Make a decisive, content-specific "
+            "creative choice rather than a generic technology image. Context: "
+            f"{to_pretty_json(episode_data)}"
+        ),
     }
 
 
 def thumbnail_hook_text(script: Any) -> str:
     title = str(script.get("title") or "").strip()
     summary = str(script.get("summary") or "").strip()
-    combined = f"{title} {summary}".lower()
-
-    if re.search(r"\b(vaccine|clinical trial|human trial)\b", combined) and "ai" in combined:
-        return "AI-MADE VACCINE"
-    if re.search(r"\b(bubble|sell-?off|slump|crash)\b", combined) and "ai" in combined:
-        return "AI BUBBLE?"
-    if re.search(r"\b(ipo|valuation)\b", combined) and re.search(r"\$?\d+\s*b", combined):
-        amount = re.search(r"\$?\d+\s*b", combined)
-        if amount:
-            compact_amount = re.sub(r"\s+", "", amount.group(0)).upper()
-            if not compact_amount.startswith("$"):
-                compact_amount = f"${compact_amount}"
-            return f"{compact_amount} AI BET"
-    if re.search(r"\b(supercomputer|superchip|dgx|rtx)\b", combined):
-        return "DESKTOP SUPERCOMPUTER"
-    if "ai" in combined and re.search(
-        r"\b(catastroph\w*|risk\w*|threat\w*|danger\w*|warning\w*)\b", combined
-    ):
-        return "HOW BAD?"
-    if "ai" in combined and re.search(
-        r"\b(order|oversight|regulat\w*|policy|government|framework|restriction)\b", combined
-    ):
-        return "WHO CONTROLS AI?"
 
     words: list[str] = []
     for source in (title.split(":", 1)[0], title, summary):
@@ -592,6 +507,30 @@ def thumbnail_hook_text(script: Any) -> str:
     if len(words) == 1:
         return f"WHY {words[0]}?"
     return " ".join(words[:3]).upper()
+
+
+def normalize_thumbnail_color(value: Any, *, fallback: str = "#FFD43B") -> str:
+    color = str(value or "").strip().upper()
+    if re.fullmatch(r"#[0-9A-F]{6}", color):
+        return color
+    return fallback
+
+
+def _thumbnail_episode_data(script: Any, job: Any | None = None) -> dict[str, Any]:
+    script_data = script if isinstance(script, dict) else {}
+    job_data = job if isinstance(job, dict) else {}
+    values = {
+        "topic": job_data.get("topic"),
+        "title": script_data.get("title"),
+        "summary": script_data.get("summary"),
+        "description": script_data.get("description"),
+        "transcript": script_data.get("transcript"),
+        "category": job_data.get("category"),
+        "audience": job_data.get("audience"),
+        "language": job_data.get("language"),
+        "tone": job_data.get("tone"),
+    }
+    return {key: value for key, value in values.items() if value not in (None, "", [], {})}
 
 
 def normalize_thumbnail_hook(value: Any) -> str:

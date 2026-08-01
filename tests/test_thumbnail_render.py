@@ -15,7 +15,7 @@ def test_render_thumbnail_adds_exact_hook_at_youtube_dimensions() -> None:
             "hook": "AI-MADE VACCINE",
             "accent_word": "VACCINE",
             "layout": "subject_right_text_left",
-            "palette": "mint_green",
+            "accent_color": "#35D6A0",
         },
     )
 
@@ -27,6 +27,7 @@ def test_render_thumbnail_adds_exact_hook_at_youtube_dimensions() -> None:
     assert result.metadata["typography_composited"] is True
     assert result.metadata["hook"] == "AI-MADE VACCINE"
     assert result.metadata["accent_word"] == "VACCINE"
+    assert result.metadata["accent_color"] == "#35D6A0"
     assert 1 <= result.metadata["line_count"] <= 3
     assert result.metadata["font_size"] >= 70
 
@@ -41,7 +42,7 @@ def test_render_thumbnail_right_aligns_text_when_subject_is_left() -> None:
             "hook": "$50B AI BET",
             "accent_word": "BET",
             "layout": "subject_left_text_right",
-            "palette": "coral_red",
+            "accent_color": "#FF5A55",
         },
     )
 

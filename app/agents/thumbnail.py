@@ -35,8 +35,8 @@ class ThumbnailAgent(PipelineAgent):
     ) -> AgentResult:
         job_id = str(job["id"])
         script = await context.latest_json(job_id, ArtifactType.VERIFIED_SCRIPT_JSON)
-        brief = await create_thumbnail_brief(script, context)
-        prompt = thumbnail_prompt(script, brief)
+        brief = await create_thumbnail_brief(script, context, job=job)
+        prompt = thumbnail_prompt(script, brief, job)
         await context.artifact_service.put_text(
             f"jobs/{job_id}/thumbnail/prompt.txt",
             prompt,
@@ -84,15 +84,17 @@ class ThumbnailAgent(PipelineAgent):
 async def create_thumbnail_brief(
     script: dict[str, Any],
     context: AgentContext,
+    *,
+    job: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         response = await context.ai.generate_text(
-            prompt=thumbnail_director_prompt(script),
+            prompt=thumbnail_director_prompt(script, job),
             model=context.settings.gemini_thumbnail_model,
             response_schema=ThumbnailCreativeBrief,
         )
         brief = parse_model_json(response.text, ThumbnailCreativeBrief)
-        return normalized_thumbnail_brief(script, brief)
+        return normalized_thumbnail_brief(script, brief, job)
     except (OSError, TypeError, ValueError, ValidationError) as exc:
         logger.warning("Thumbnail creative director failed; using deterministic brief: %s", exc)
-        return fallback_thumbnail_brief(script)
+        return fallback_thumbnail_brief(script, job)
