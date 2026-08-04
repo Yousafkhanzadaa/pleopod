@@ -13,7 +13,6 @@ def test_default_gemini_models_use_low_cost_development_profile(
         "GEMINI_RESEARCH_MODEL",
         "GEMINI_SCRIPT_MODEL",
         "GEMINI_VERIFICATION_MODEL",
-        "GEMINI_THUMBNAIL_MODEL",
         "GEMINI_TEXT_FALLBACK_MODEL",
         "GEMINI_TTS_MODEL",
         "GEMINI_TTS_FALLBACK_MODEL",
@@ -24,6 +23,7 @@ def test_default_gemini_models_use_low_cost_development_profile(
         "OPENAI_IMAGE_SIZE",
         "OPENAI_IMAGE_QUALITY",
         "OPENAI_IMAGE_OUTPUT_FORMAT",
+        "OPENAI_IMAGE_TIMEOUT_SECONDS",
         "TTS_GENERATION_MODE",
         "TEMPORARY_STORAGE_PATH",
         "AUTOPUBLISH_TOPIC_MODEL",
@@ -40,7 +40,6 @@ def test_default_gemini_models_use_low_cost_development_profile(
     assert settings.gemini_research_model == "gemini-2.5-flash-lite"
     assert settings.gemini_script_model == "gemini-2.5-flash-lite"
     assert settings.gemini_verification_model == "gemini-2.5-flash-lite"
-    assert settings.gemini_thumbnail_model == "gemini-2.5-flash-lite"
     assert settings.gemini_text_fallback_model == "gemini-2.5-flash-lite"
     assert settings.gemini_tts_model == "gemini-2.5-flash-preview-tts"
     assert settings.gemini_tts_fallback_model == "gemini-2.5-flash-preview-tts"
@@ -50,6 +49,7 @@ def test_default_gemini_models_use_low_cost_development_profile(
     assert settings.openai_image_model == "gpt-image-2"
     assert settings.openai_image_size == "1280x720"
     assert settings.openai_image_quality == "high"
+    assert settings.openai_image_timeout_seconds == 300
     assert settings.tts_generation_mode == "chunked"
     assert settings.autopublish_topic_model == "gemini-2.5-flash-lite"
     assert settings.autopublish_target_duration_seconds == 90

@@ -78,14 +78,6 @@ class PodcastScript(AgentOutputModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-class ThumbnailCreativeBrief(AgentOutputModel):
-    hook: str = Field(min_length=2, max_length=40)
-    accent_word: str = Field(min_length=1, max_length=20)
-    layout: Literal["subject_right_text_left", "subject_left_text_right"]
-    accent_color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
-    image_prompt: str = Field(min_length=20, max_length=2000)
-
-
 class VerificationLineCheck(AgentOutputModel):
     line: str = ""
     claim: str | None = None

@@ -1,9 +1,15 @@
 import base64
 
+import httpx
 import pytest
 
 from app.providers.ai import AudioGeneration, SpeakerVoice
-from app.providers.openai import OpenAIAudioProvider, OpenAIImageProvider
+from app.providers.openai import (
+    OpenAIAudioProvider,
+    OpenAIImageGenerationError,
+    OpenAIImageProvider,
+    _is_retryable_openai_image_error,
+)
 from app.services.audio import wav_bytes
 
 
@@ -39,12 +45,15 @@ def test_generate_image_sync_posts_openai_image_options(monkeypatch) -> None:
             "openai_image_size": "1280x720",
             "openai_image_quality": "medium",
             "openai_image_output_format": "png",
+            "openai_image_timeout_seconds": 300,
         },
     )()
 
     captured: dict[str, object] = {}
 
     class _Response:
+        is_error = False
+
         def raise_for_status(self) -> None:
             pass
 
@@ -74,7 +83,78 @@ def test_generate_image_sync_posts_openai_image_options(monkeypatch) -> None:
         "quality": "medium",
         "output_format": "png",
     }
-    assert captured["timeout"] == 120
+    timeout = captured["timeout"]
+    assert isinstance(timeout, httpx.Timeout)
+    assert timeout.connect == 10
+    assert timeout.read == 300
+
+
+def test_generate_image_sync_preserves_openai_error_details(monkeypatch) -> None:
+    provider = OpenAIImageProvider.__new__(OpenAIImageProvider)
+    provider.settings = type(
+        "Settings",
+        (),
+        {
+            "openai_api_key": "openai-key",
+            "openai_image_size": "1280x720",
+            "openai_image_quality": "high",
+            "openai_image_output_format": "png",
+            "openai_image_timeout_seconds": 300,
+        },
+    )()
+    request = httpx.Request("POST", "https://api.openai.com/v1/images/generations")
+    response = httpx.Response(
+        400,
+        request=request,
+        headers={"x-request-id": "req_thumbnail_123"},
+        json={
+            "error": {
+                "message": "The requested image size is invalid.",
+                "type": "image_generation_user_error",
+                "code": "invalid_size",
+            }
+        },
+    )
+    monkeypatch.setattr("app.providers.openai.httpx.post", lambda *_args, **_kwargs: response)
+
+    with pytest.raises(OpenAIImageGenerationError) as caught:
+        provider._generate_image_sync("make a thumbnail", "gpt-image-2")
+
+    assert caught.value.status_code == 400
+    assert caught.value.code == "invalid_size"
+    assert caught.value.request_id == "req_thumbnail_123"
+    assert "The requested image size is invalid." in str(caught.value)
+    assert _is_retryable_openai_image_error(caught.value) is False
+
+
+@pytest.mark.parametrize("status_code", [408, 409, 429, 500, 503])
+def test_transient_openai_image_errors_are_retryable(status_code: int) -> None:
+    error = OpenAIImageGenerationError("temporary failure", status_code=status_code)
+
+    assert _is_retryable_openai_image_error(error) is True
+
+
+@pytest.mark.asyncio
+async def test_generate_image_does_not_retry_permanent_openai_error(monkeypatch) -> None:
+    provider = OpenAIImageProvider.__new__(OpenAIImageProvider)
+    provider.settings = type("Settings", (), {"openai_image_output_format": "png"})()
+    calls = 0
+
+    def fail_permanently(_prompt: str, _model: str) -> dict:
+        nonlocal calls
+        calls += 1
+        raise OpenAIImageGenerationError(
+            "blocked by moderation",
+            status_code=400,
+            code="moderation_blocked",
+        )
+
+    monkeypatch.setattr(provider, "_generate_image_sync", fail_permanently)
+
+    with pytest.raises(OpenAIImageGenerationError, match="moderation_blocked"):
+        await provider.generate_image("make a thumbnail", "gpt-image-2")
+
+    assert calls == 1
 
 
 def test_generate_tts_sync_posts_directed_openai_speech_options(monkeypatch) -> None:

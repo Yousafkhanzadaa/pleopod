@@ -79,7 +79,6 @@ class Settings(BaseSettings):
     gemini_research_model: str = LOW_COST_GEMINI_TEXT_MODEL
     gemini_script_model: str = LOW_COST_GEMINI_TEXT_MODEL
     gemini_verification_model: str = LOW_COST_GEMINI_TEXT_MODEL
-    gemini_thumbnail_model: str = LOW_COST_GEMINI_TEXT_MODEL
     gemini_text_fallback_model: str | None = LOW_COST_GEMINI_TEXT_MODEL
     gemini_tts_model: str = LOW_COST_GEMINI_TTS_MODEL
     gemini_tts_fallback_model: str | None = LOW_COST_GEMINI_TTS_MODEL
@@ -90,6 +89,7 @@ class Settings(BaseSettings):
     openai_image_size: str = "1280x720"
     openai_image_quality: Literal["low", "medium", "high", "auto"] = "high"
     openai_image_output_format: Literal["png", "jpeg", "webp"] = "png"
+    openai_image_timeout_seconds: float = Field(default=300.0, gt=0)
 
     # Cost-efficient narration. "auto" uses Gemini TTS for real AI runs and the
     # deterministic fake tone in fake mode. OpenAI remains an explicit opt-in.

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 from typing import Any
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.core.config import Settings
 from app.providers.ai import (
@@ -27,6 +28,60 @@ _MIME_BY_FORMAT = {
 }
 
 
+class OpenAIImageGenerationError(RuntimeError):
+    """A safe, actionable error returned by the OpenAI Images API."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        code: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        details = f"status={status_code}"
+        if code:
+            details += f" code={code}"
+        if request_id:
+            details += f" request_id={request_id}"
+        super().__init__(f"OpenAI image generation failed ({details}): {message}")
+        self.status_code = status_code
+        self.code = code
+        self.request_id = request_id
+
+
+def _is_retryable_openai_image_error(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if not isinstance(exc, OpenAIImageGenerationError):
+        return False
+    return exc.status_code in {408, 409, 429} or exc.status_code >= 500
+
+
+def _openai_image_generation_error(response: httpx.Response) -> OpenAIImageGenerationError:
+    request_id = response.headers.get("x-request-id")
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict):
+        message = str(error.get("message") or "The Images API rejected the request")
+        raw_code = error.get("code") or error.get("type")
+        code = str(raw_code) if raw_code else None
+    else:
+        message = response.text.strip()[:500] or "The Images API rejected the request"
+        code = None
+
+    return OpenAIImageGenerationError(
+        message,
+        status_code=response.status_code,
+        code=code,
+        request_id=request_id,
+    )
+
+
 class OpenAIImageProvider(AIProvider):
     def __init__(self, settings: Settings):
         settings.validate_thumbnail_image()
@@ -43,7 +98,12 @@ class OpenAIImageProvider(AIProvider):
     ) -> TextGeneration:
         raise NotImplementedError("OpenAIImageProvider only supports image generation")
 
-    @retry(wait=wait_exponential(multiplier=1, min=1, max=20), stop=stop_after_attempt(3))
+    @retry(
+        wait=wait_exponential(multiplier=1, min=1, max=20),
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception(_is_retryable_openai_image_error),
+        reraise=True,
+    )
     async def generate_image(self, prompt: str, model: str) -> ImageGeneration:
         response = await asyncio.to_thread(self._generate_image_sync, prompt, model)
 
@@ -55,8 +115,15 @@ class OpenAIImageProvider(AIProvider):
         if not image_base64:
             raise RuntimeError("OpenAI image generation returned no base64 image")
 
+        try:
+            image_data = base64.b64decode(image_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise RuntimeError(
+                "OpenAI image generation returned invalid base64 image data"
+            ) from exc
+
         return ImageGeneration(
-            data=base64.b64decode(image_base64),
+            data=image_data,
             mime_type=_MIME_BY_FORMAT[self.settings.openai_image_output_format],
             prompt=prompt,
         )
@@ -76,10 +143,18 @@ class OpenAIImageProvider(AIProvider):
                 "quality": self.settings.openai_image_quality,
                 "output_format": self.settings.openai_image_output_format,
             },
-            timeout=120,
+            timeout=httpx.Timeout(
+                self.settings.openai_image_timeout_seconds,
+                connect=10.0,
+            ),
         )
-        response.raise_for_status()
-        return response.json()
+        if response.is_error:
+            raise _openai_image_generation_error(response)
+
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("OpenAI image generation returned an invalid JSON response")
+        return payload
 
     async def generate_tts(
         self,

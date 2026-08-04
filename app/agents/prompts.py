@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from app.core.duration import (
@@ -350,236 +349,28 @@ JSON shape:
 """.strip()
 
 
-def thumbnail_director_prompt(script: Any, job: Any | None = None) -> str:
-    episode_data = _thumbnail_episode_data(script, job)
-    return f"""
-You are a senior YouTube thumbnail strategist and art director.
-
-Understand the episode, the intended audience, and the promise made by the title. Then
-design the strongest truthful thumbnail concept for this specific video. Use your
-knowledge of how people discover and evaluate videos in this content market.
-
-EPISODE AND MARKET DATA
-{to_pretty_json(episode_data)}
-
-The title and thumbnail must work together. Decide what the image should communicate
-instantly, what visual will create relevant curiosity, and what short hook adds value
-without simply repeating the title.
-
-You have full creative freedom. Choose the subject, visual medium, art direction,
-setting, perspective, framing, lighting, color palette, mood, and level of realism that
-best fit this episode and audience. Make a fresh decision from the supplied content;
-do not reuse a default style or force every topic into the same visual formula.
-
-The generated image will be used as a 16:9 YouTube thumbnail and viewed at small sizes.
-The backend adds the hook afterward, so choose which side should contain the subject and
-which side should remain usable for the text overlay. The image itself must not contain
-readable text. Keep the concept accurate and avoid implying events or claims that are
-not supported by the episode.
-
-Write image_prompt as a complete, standalone direction for the image-generation model.
-Describe the final image you chose—not your reasoning, a list of options, or a reusable
-template. Be specific where specificity improves this concept, and leave stylistic
-choices open only when they genuinely do not matter.
-
-Return JSON only, with no Markdown or commentary.
-{{
-  "hook": "2-4 word thumbnail hook",
-  "accent_word": "one exact word copied from hook",
-  "layout": "subject_right_text_left | subject_left_text_right",
-  "accent_color": "#RRGGBB color chosen for the hook accent",
-  "image_prompt": "standalone, episode-specific direction for the final thumbnail artwork"
-}}
-""".strip()
-
-
 def thumbnail_prompt(
     script: Any,
-    brief: Any | None = None,
     job: Any | None = None,
 ) -> str:
-    creative = normalized_thumbnail_brief(script, brief, job)
-    subject_side = "right" if creative["layout"] == "subject_right_text_left" else "left"
-    text_side = "left" if subject_side == "right" else "right"
-    episode_data = _thumbnail_episode_data(script, job)
-    episode_data.pop("transcript", None)
-    return f"""
-Create the final background artwork for a YouTube thumbnail using the content and
-creative direction below.
-
-EPISODE CONTEXT
-{to_pretty_json(episode_data)}
-
-CREATIVE DIRECTION
-{creative["image_prompt"]}
-
-Use your visual judgment to turn this direction into one cohesive, original image for
-this specific episode. The result must be a 16:9 composition that reads clearly at
-mobile thumbnail size and remains truthful to the supplied content.
-
-The subject belongs on the {subject_side}. Keep sufficient uncluttered space on the
-{text_side} for a large text overlay added after generation. Do not render the hook or
-any other readable text, logos, or watermarks in the image. Keep the bottom-right area
-free of essential detail because the platform may cover it with a duration badge.
-""".strip()
-
-
-def normalized_thumbnail_brief(
-    script: Any,
-    brief: Any | None = None,
-    job: Any | None = None,
-) -> dict[str, Any]:
-    fallback = fallback_thumbnail_brief(script, job)
-    if not isinstance(brief, dict):
-        return fallback
-
-    normalized = dict(fallback)
-    for key in normalized:
-        value = brief.get(key)
-        if value not in (None, ""):
-            normalized[key] = value
-
-    hook = normalize_thumbnail_hook(normalized.get("hook"))
-    if not hook:
-        hook = fallback["hook"]
-    normalized["hook"] = hook
-    hook_words = thumbnail_hook_words(hook)
-
-    accent_tokens = thumbnail_hook_words(str(normalized.get("accent_word") or ""))
-    accent_word = accent_tokens[0] if len(accent_tokens) == 1 else ""
-    if accent_word not in hook_words:
-        accent_word = hook_words[-1] if hook_words else fallback["accent_word"]
-    normalized["accent_word"] = accent_word
-
-    if normalized.get("layout") not in {
-        "subject_right_text_left",
-        "subject_left_text_right",
-    }:
-        normalized["layout"] = fallback["layout"]
-
-    image_prompt = str(normalized.get("image_prompt") or "").strip()
-    normalized["image_prompt"] = image_prompt or fallback["image_prompt"]
-    normalized["accent_color"] = normalize_thumbnail_color(
-        normalized.get("accent_color"),
-        fallback=fallback["accent_color"],
-    )
-    return normalized
-
-
-def fallback_thumbnail_brief(
-    script: Any,
-    job: Any | None = None,
-) -> dict[str, Any]:
-    hook = thumbnail_hook_text(script)
-    episode_data = _thumbnail_episode_data(script, job)
-    episode_data.pop("transcript", None)
-
-    return {
-        "hook": hook,
-        "accent_word": thumbnail_hook_words(hook)[-1],
-        "layout": "subject_right_text_left",
-        "accent_color": "#FFD43B",
-        "image_prompt": (
-            "Design an original thumbnail image specifically for this episode. Infer the "
-            "strongest visual concept from the episode context, then choose the subject, "
-            "visual medium, setting, composition, lighting, and color treatment that best "
-            "communicate it to the intended audience. Make a decisive, content-specific "
-            "creative choice rather than a generic technology image. Context: "
-            f"{to_pretty_json(episode_data)}"
-        ),
-    }
-
-
-def thumbnail_hook_text(script: Any) -> str:
-    title = str(script.get("title") or "").strip()
-    summary = str(script.get("summary") or "").strip()
-
-    words: list[str] = []
-    for source in (title.split(":", 1)[0], title, summary):
-        candidate_words = thumbnail_hook_words(source)
-        if len(candidate_words) >= 2:
-            words = candidate_words
-            break
-        if len(candidate_words) > len(words):
-            words = candidate_words
-    if not words:
-        return "WHAT CHANGED?"
-    if len(words) == 1:
-        return f"WHY {words[0]}?"
-    return " ".join(words[:3]).upper()
-
-
-def normalize_thumbnail_color(value: Any, *, fallback: str = "#FFD43B") -> str:
-    color = str(value or "").strip().upper()
-    if re.fullmatch(r"#[0-9A-F]{6}", color):
-        return color
-    return fallback
-
-
-def _thumbnail_episode_data(script: Any, job: Any | None = None) -> dict[str, Any]:
     script_data = script if isinstance(script, dict) else {}
     job_data = job if isinstance(job, dict) else {}
-    values = {
-        "topic": job_data.get("topic"),
-        "title": script_data.get("title"),
-        "summary": script_data.get("summary"),
-        "description": script_data.get("description"),
-        "transcript": script_data.get("transcript"),
-        "category": job_data.get("category"),
-        "audience": job_data.get("audience"),
-        "language": job_data.get("language"),
-        "tone": job_data.get("tone"),
-    }
-    return {key: value for key, value in values.items() if value not in (None, "", [], {})}
+    title = " ".join(
+        str(script_data.get("title") or job_data.get("topic") or "Untitled video").split()
+    )
+    information = " ".join(
+        str(
+            script_data.get("summary")
+            or script_data.get("description")
+            or job_data.get("topic")
+            or ""
+        ).split()
+    )
 
-
-def normalize_thumbnail_hook(value: Any) -> str:
-    text = re.sub(r"\s+", " ", str(value or "").strip()).upper()
-    if not text:
-        return ""
-    words = thumbnail_hook_words(text)
-    if not 2 <= len(words) <= 4:
-        return ""
-    if len(text) > 40:
-        return ""
-    return text
-
-
-_THUMBNAIL_HOOK_STOP_WORDS = {
-    "a",
-    "an",
-    "and",
-    "as",
-    "at",
-    "by",
-    "for",
-    "from",
-    "in",
-    "into",
-    "is",
-    "new",
-    "of",
-    "on",
-    "or",
-    "our",
-    "the",
-    "this",
-    "to",
-    "with",
-    "your",
-}
-
-
-def thumbnail_hook_words(text: str) -> list[str]:
-    words: list[str] = []
-    for match in re.findall(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?", text):
-        word = re.sub(r"'s$", "", match, flags=re.IGNORECASE).upper()
-        if len(word) <= 1:
-            continue
-        if word.lower() in _THUMBNAIL_HOOK_STOP_WORDS:
-            continue
-        words.append(word)
-    return words
+    prompt = f'Generate a YouTube thumbnail for the video titled "{title}".'
+    if information and information.casefold() != title.casefold():
+        prompt += f" Video information: {information}"
+    return prompt
 
 
 def scene_director_prompt(

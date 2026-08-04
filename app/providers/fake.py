@@ -77,18 +77,6 @@ class FakeAIProvider(AIProvider):
                 "rejected_topics": [],
             }
             return TextGeneration(text=json.dumps(topic_data))
-        if schema_name == "ThumbnailCreativeBrief" or "thumbnail creative director" in lower:
-            thumbnail_data: dict[str, Any] = {
-                "hook": "CODE JUST CHANGED",
-                "accent_word": "CHANGED",
-                "layout": "subject_right_text_left",
-                "accent_color": "#FFD43B",
-                "image_prompt": (
-                    "Show a developer's familiar workflow visibly shifting into a more "
-                    "powerful mode, using a concept and visual treatment suited to the episode."
-                ),
-            }
-            return TextGeneration(text=json.dumps(thumbnail_data))
         if (
             schema_name == "PodcastScript"
             or "podcast script agent" in lower

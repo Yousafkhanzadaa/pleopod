@@ -216,7 +216,7 @@ Most settings are documented in `.env.example`. The most important groups are:
 | `OPENAI_API_KEY` | Required when thumbnail generation resolves to OpenAI. |
 | `OPENAI_IMAGE_MODEL` | Defaults to `gpt-image-2` for generated thumbnails. |
 | `OPENAI_IMAGE_QUALITY` | Defaults to `high` for final thumbnails. |
-| `GEMINI_THUMBNAIL_MODEL` | Creates the structured thumbnail hook and visual brief. Defaults to `gemini-2.5-flash-lite`; image generation remains a single request. |
+| `OPENAI_IMAGE_TIMEOUT_SECONDS` | Allows up to 300 seconds for slower image generations. |
 | `TTS_GENERATION_MODE` | `chunked` for safer Gemini TTS calls, or `single_request` for short episodes only. |
 | `AUTOPUBLISH_*` | Topic Scout settings for scheduled self-running publishing jobs. |
 | `MAX_AGENT_ATTEMPTS` | Retry budget for failed queue messages. |
